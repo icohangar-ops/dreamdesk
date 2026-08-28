@@ -315,6 +315,15 @@ class DeskEngine extends EventEmitter {
         outcome.consensus === "SPLIT"
           ? 0
           : outcome.ballots.filter((b) => b.vote === (outcome.consensus === "UP" ? "YES" : "NO")).reduce((a, b) => a + b.confidence, 0) / Math.max(1, outcome.ballots.filter((b) => b.vote === (outcome.consensus === "UP" ? "YES" : "NO")).length);
+      // Signed value edge for the chosen side: what we think the side is worth
+      // minus what the venue charges for it. Positive = mispricing in our favor.
+      //   YES: modelProb − upAsk   ·   NO: (1 − modelProb) − (1 − upAsk) = upAsk − modelProb
+      const signedEdge =
+        sideVenueProb != null
+          ? side === "YES"
+            ? outcome.modelProb - sideVenueProb
+            : sideVenueProb - outcome.modelProb
+          : null;
       const gatesResult = runRiskGates({
         now: Date.now(),
         lastExecAt: this.lastExecAt,
@@ -322,7 +331,7 @@ class DeskEngine extends EventEmitter {
         realizedPnl: this.realizedPnl,
         sessionAgeMs: 0,
         councilConfidence: winningConfidence,
-        edge: sideVenueProb != null ? Math.abs(outcome.modelProb - sideVenueProb) : 0,
+        edge: signedEdge ?? -1, // unknown venue price ⇒ no provable value ⇒ veto
         secondsLeft: this.activeMarket?.secondsLeft ?? null,
         onchainStatusOk: this.activeMarket?.onchainStatus === 1,
         hasMarket: !!this.activeMarket,

@@ -11,7 +11,7 @@ export type RiskContext = {
   realizedPnl: number;
   sessionAgeMs: number;
   councilConfidence: number; // 0..1 mean juror conviction on the winning side
-  edge: number; // |modelProb − venueProb|
+  edge: number; // SIGNED value edge: model prob of the chosen side minus the price the venue charges
   secondsLeft: number | null;
   onchainStatusOk: boolean;
   hasMarket: boolean;
@@ -48,11 +48,14 @@ export function runRiskGates(ctx: RiskContext): { gates: RiskGate[]; pass: boole
     detail: `Winning-side conviction ${ctx.councilConfidence.toFixed(2)}`,
   });
 
+  // Signed edge: the desk only buys when the council's probability for the
+  // chosen side clears the venue's price by the minimum margin. Negative edge
+  // means the venue already charges more than we believe the side is worth.
   const edgeOk = ctx.edge >= DESK.minEdgeProb;
   gates.push({
     gate: `Edge ≥ ${(DESK.minEdgeProb * 100).toFixed(0)}¢`,
     passed: edgeOk,
-    detail: `Model-vs-venue edge ${(ctx.edge * 100).toFixed(1)}¢`,
+    detail: `${ctx.edge >= 0 ? "+" : "−"}${Math.abs(ctx.edge * 100).toFixed(1)}¢ value vs venue ask`,
   });
 
   const posOk = ctx.openPositions < DESK.maxOpenPositions;
