@@ -85,7 +85,7 @@ export default function Home() {
         </Panel>
 
         {/* ── 02/03 council + risk ─────────────────────────────────── */}
-        <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
           <Panel title={PANEL_TITLES.council} hint="Three LLM jurors with opposed mandates vote; two YES with weighted conviction clears the bar.">
             <CouncilPanel decision={snap.decision} />
           </Panel>
@@ -95,7 +95,7 @@ export default function Home() {
         </div>
 
         {/* ── 04/05 book + ledger ──────────────────────────────────── */}
-        <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
           <Panel title={PANEL_TITLES.book} hint="IOC limit orders into the dreamDEX book — LIVE fills settle on-chain, PAPER fills mirror venue prices.">
             <TradePanel open={snap.openTrades} settled={snap.settledTrades} />
           </Panel>
@@ -117,7 +117,7 @@ export default function Home() {
 
 function Panel({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
   return (
-    <Card className="border-zinc-800 bg-[#0e0e11] shadow-none">
+    <Card className="min-w-0 border-zinc-800 bg-[#0e0e11] shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <span className="font-mono text-xs tracking-widest text-zinc-300 uppercase">{title}</span>
