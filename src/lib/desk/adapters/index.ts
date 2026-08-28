@@ -41,9 +41,21 @@ export class PaperAdapter implements ExecutionAdapter {
 
   async execute(intent: ExecIntent): Promise<ExecResult> {
     const upAsk = intent.quote.bestAsk;
-    // No live book: settle on the model's own probability (synthetic venue).
-    const base = upAsk ?? Math.min(0.97, Math.max(0.03, intent.modelProb));
-    const upFill = Math.min(0.98, Math.max(0.02, base + DESK.paperSlippage));
+    // Empty ask side: a real IOC limit has nothing to cross — the paper desk
+    // refuses too rather than inventing a synthetic fill off the model's own
+    // probability. Honest no-fill beats a flattering simulation.
+    if (upAsk == null) {
+      return {
+        ok: true,
+        filled: false,
+        price: priceForSide(intent.side, 0.5),
+        size: 0,
+        notional: 0,
+        txHash: null,
+        detail: "No ask-side liquidity — paper order expired unfilled (IOC)",
+      };
+    }
+    const upFill = Math.min(0.98, Math.max(0.02, upAsk + DESK.paperSlippage));
     const fill = priceForSide(intent.side, upFill);
     const size = fill > 0 ? intent.notional / fill : 0;
     if (size <= 0) {
@@ -56,7 +68,7 @@ export class PaperAdapter implements ExecutionAdapter {
       size,
       notional: intent.notional,
       txHash: null,
-      detail: `Simulated fill at ${(fill * 100).toFixed(1)}¢ (real ask ${(base * 100).toFixed(1)}¢ + ${DESK.paperSlippage * 100}¢ slippage)`,
+      detail: `Simulated fill at ${(fill * 100).toFixed(1)}¢ (real ask ${(upAsk * 100).toFixed(1)}¢ + ${DESK.paperSlippage * 100}¢ slippage)`,
     };
   }
 }
