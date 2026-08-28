@@ -53,3 +53,12 @@ server.log
 # Skills directory
 /skills/tool-results/
 download/
+
+# scratch + scaffold internals
+tool-results/
+download/
+/skills/
+/.zscripts/
+/examples/
+db/custom.db
+/docs-reference/
