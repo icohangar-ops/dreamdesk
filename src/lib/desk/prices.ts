@@ -1,17 +1,20 @@
 // PriceManager — dual-feed price service.
 //
-// Primary: dreamDEX's on-chain EMA price feed (the same oracle index that
-// settles event contracts) read one-shot from the price-feed indexer.
+// Primary: dreamDEX's on-chain price oracle (the same index that settles
+// event contracts), read one-shot from the price-feed GraphQL indexer.
+// Values come back as 18-decimal fixed point and are scaled to floats here.
 // Fallback: Binance spot REST — used automatically if the oracle feed is
 // unreachable, so the desk keeps making decisions during indexing hiccups.
 //
 // Every tick is labeled with its source and stored in a per-asset ring buffer
 // that quant agents consume.
 
-import { getLivePrices } from "@somnia-chain/markets-sdk";
-import { SOMNIA_TESTNET_PRICE_FEED } from "@somnia-chain/markets-sdk";
 import { DESK } from "./config";
 import type { Tick } from "./indicators";
+
+const PRICE_FEED_URL = "https://price-feed.dev.oracle.somnia.host/v1/graphql";
+const FEED_DECIMALS = 10 ** 18; // oracle posts fixed-point 1e18 values
+const SYMBOL_MAP: Record<string, string> = { BTC: "BTC/USDC", ETH: "ETH/USDC" };
 
 export type PriceSource = "ORACLE" | "MARKET" | "SYNTH";
 
@@ -23,6 +26,40 @@ export type PriceState = {
   ts: number;
   history: Tick[];
 };
+
+/** One alias per asset → single round-trip for the whole watchlist. */
+function oracleQuery(assets: string[]): string {
+  const parts = assets
+    .filter((a) => SYMBOL_MAP[a])
+    .map(
+      (a, i) =>
+        `a${i}: PricePoint(limit: 1, order_by: {blockTimestamp: desc}, where: {symbol: {_eq: "${SYMBOL_MAP[a]}"}}) { base spot mark blockTimestamp }`,
+    );
+  return `{ ${parts.join(" ")} }`;
+}
+
+type OraclePoint = { base: string; spot: string; mark: string; blockTimestamp: string };
+
+async function fetchOracle(assets: string[]): Promise<Map<string, { spot: number; mark: number }>> {
+  const out = new Map<string, { spot: number; mark: number }>();
+  const res = await fetch(PRICE_FEED_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: oracleQuery(assets) }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(6_000),
+  });
+  if (!res.ok) throw new Error(`price feed HTTP ${res.status}`);
+  const json = (await res.json()) as { data?: Record<string, OraclePoint[] | null>; errors?: unknown };
+  if (!json.data || json.errors) throw new Error("price feed returned no data");
+  for (const [i, asset] of assets.filter((a) => SYMBOL_MAP[a]).entries()) {
+    const row = json.data[`a${i}`]?.[0];
+    const spot = row ? Number(row.spot) / FEED_DECIMALS : 0;
+    const mark = row ? Number(row.mark) / FEED_DECIMALS : 0;
+    if (spot > 0) out.set(asset, { spot, mark });
+  }
+  return out;
+}
 
 const BINANCE_MAP: Record<string, string> = { BTC: "BTCUSDT", ETH: "ETHUSDT" };
 
@@ -65,17 +102,23 @@ class PriceManager {
   }
 
   private async refresh() {
-    for (const asset of this.states.keys()) {
-      try {
-        const [oracle] = await getLivePrices(SOMNIA_TESTNET_PRICE_FEED.url, [asset]);
-        if (oracle && oracle.price > 0) {
-          this.oracleHealthy = true;
-          this.lastError = null;
-          this.push(asset, oracle.price, oracle.ema ?? null, "ORACLE");
-          continue;
-        }
-      } catch {
-        // oracle read failed — fall through to Binance
+    const assets = [...this.states.keys()];
+    if (assets.length === 0) return;
+
+    let oracleReads: Map<string, { spot: number; mark: number }> | null = null;
+    try {
+      oracleReads = await fetchOracle(assets);
+    } catch (e) {
+      this.lastError = `oracle: ${(e as Error).message}`;
+    }
+
+    for (const asset of assets) {
+      const oracle = oracleReads?.get(asset);
+      if (oracle) {
+        this.oracleHealthy = true;
+        this.lastError = null;
+        this.push(asset, oracle.spot, oracle.mark, "ORACLE");
+        continue;
       }
       try {
         const sym = BINANCE_MAP[asset];
@@ -87,11 +130,10 @@ class PriceManager {
         const p = Number(json.price);
         if (p > 0) {
           this.oracleHealthy = false;
-          this.lastError = null;
           this.push(asset, p, null, "MARKET");
         }
       } catch (e) {
-        this.lastError = (e as Error).message;
+        this.lastError = `${asset} fallback: ${(e as Error).message}`;
       }
     }
   }

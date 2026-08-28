@@ -91,11 +91,11 @@ function heuristicBallot(juror: JurorName, ctx: CouncilContext): JurorBallot {
   return { juror, vote, confidence: calm ? 0.55 : 0.3, rationale: `Heuristic sentinel read: regime ${String(vol?.data?.regime ?? "unknown")}, score ${dirScore.toFixed(2)}.`, engine: "heuristic" };
 }
 
-async function voteJuror(juror: JurorName, ctx: CouncilContext): Promise<JurorBallot> {
-  try {
-    const { default: ZAI } = await import("z-ai-web-dev-sdk");
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
+async function llmBallot(juror: JurorName, ctx: CouncilContext): Promise<JurorBallot> {
+  const { default: ZAI } = await import("z-ai-web-dev-sdk");
+  const zai = await ZAI.create();
+  const ask = () =>
+    zai.chat.completions.create({
       messages: [
         {
           role: "system",
@@ -105,18 +105,34 @@ async function voteJuror(juror: JurorName, ctx: CouncilContext): Promise<JurorBa
       ],
       temperature: 0.4,
     });
-    const raw = completion.choices[0]?.message?.content ?? "";
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("no JSON in LLM response");
-    const parsed = JSON.parse(match[0]) as { vote: string; confidence: number; rationale: string };
-    const vote = ["YES", "NO", "ABSTAIN"].includes(parsed.vote) ? (parsed.vote as Vote) : "ABSTAIN";
-    return {
-      juror,
-      vote,
-      confidence: Math.min(1, Math.max(0, parsed.confidence)),
-      rationale: parsed.rationale?.slice(0, 400) || "No rationale given.",
-      engine: "llm",
-    };
+
+  // One polite retry on rate limiting — then fall to the heuristic quorum.
+  let completion;
+  try {
+    completion = await ask();
+  } catch (err) {
+    if (!/429|Too many/i.test(String(err))) throw err;
+    await new Promise((r) => setTimeout(r, 1_800));
+    completion = await ask();
+  }
+
+  const raw = completion.choices[0]?.message?.content ?? "";
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("no JSON in LLM response");
+  const parsed = JSON.parse(match[0]) as { vote: string; confidence: number; rationale: string };
+  const vote = ["YES", "NO", "ABSTAIN"].includes(parsed.vote) ? (parsed.vote as Vote) : "ABSTAIN";
+  return {
+    juror,
+    vote,
+    confidence: Math.min(1, Math.max(0, parsed.confidence)),
+    rationale: parsed.rationale?.slice(0, 400) || "No rationale given.",
+    engine: "llm",
+  };
+}
+
+async function voteJuror(juror: JurorName, ctx: CouncilContext): Promise<JurorBallot> {
+  try {
+    return await llmBallot(juror, ctx);
   } catch {
     return heuristicBallot(juror, ctx);
   }

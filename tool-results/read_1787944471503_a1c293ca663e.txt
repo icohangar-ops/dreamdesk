@@ -1,0 +1,576 @@
+     1→// DeskEngine — the orchestrator.
+     2→//
+     3→// Owns the decision loop: gather signals → (maybe) convene the council →
+     4→// run risk gates → execute through the adapter → settle expiries — appending
+     5→// a hash-chained audit event for every step, and broadcasting UI snapshots.
+     6→
+     7→import { EventEmitter } from "events";
+     8→import { db } from "@/lib/db";
+     9→import { computeAuditHash, GENESIS_HASH } from "./ledger";
+    10→import { DESK, DREAMDEX, resolveMode, type DeskMode } from "./config";
+    11→import { prices } from "./prices";
+    12→import { momentumAgent, volatilityAgent, sentimentAgent, type SignalPacket, type AgentName } from "./agents";
+    13→import { conveneCouncil, type JurorBallot, type CouncilContext } from "./council";
+    14→import { runRiskGates, type RiskGate } from "./risk";
+    15→import { PaperAdapter, LiveAdapter, type ExecutionAdapter, priceForSide } from "./adapters";
+    16→import { findMarket, fetchUpQuote, getExchange, walletAddress, collateralBalance, type MarketCandidate, type BookQuote } from "./exchange";
+    17→import type { Tick } from "./indicators";
+    18→
+    19→export type Phase = "idle" | "gathering" | "convening" | "risk" | "executing" | "settling" | "cooldown";
+    20→export type DecisionView = {
+    21→  id: string;
+    22→  cycle: number;
+    23→  status: string;
+    24→  consensus: string | null;
+    25→  summary: string;
+    26→  chosenSide: string | null;
+    27→  entryProb: number | null;
+    28→  marketSymbol: string | null;
+    29→  secondsLeft: number | null;
+    30→  votes: JurorBallot[];
+    31→  riskGates: RiskGate[];
+    32→  signals: SignalPacket[];
+    33→  modelProb: number | null;
+    34→  venueProb: number | null;
+    35→  execDetail: string | null;
+    36→  txHash: string | null;
+    37→  at: string;
+    38→};
+    39→export type TradeView = {
+    40→  id: string;
+    41→  symbol: string;
+    42→  side: string;
+    43→  price: number;
+    44→  size: number;
+    45→  notional: number;
+    46→  status: string;
+    47→  txHash: string | null;
+    48→  entryProb: number;
+    49→  lastProb: number | null;
+    50→  pnl: number;
+    51→  markProb: number | null;
+    52→  secondsLeft: number | null;
+    53→  mode: string;
+    54→  openedAt: string;
+    55→};
+    56→export type Snapshot = {
+    57→  status: "IDLE" | "RUNNING";
+    58→  mode: DeskMode;
+    59→  modeReason: string;
+    60→  asset: string;
+    61→  cadenceSec: number;
+    62→  cycle: number;
+    63→  phase: Phase;
+    64→  sessionId: string | null;
+    65→  wallet: string | null;
+    66→  collateral: number | null;
+    67→  equity: number;
+    68→  startingEquity: number;
+    69→  realizedPnl: number;
+    70→  price: { asset: string; price: number; ema: number | null; source: string; history: Tick[] } | null;
+    71→  prices: { asset: string; price: number; source: string }[];
+    72→  agents: Record<AgentName, SignalPacket>;
+    73→  decision: DecisionView | null;
+    74→  openTrades: TradeView[];
+    75→  settledTrades: TradeView[];
+    76→  stats: { trades: number; wins: number; losses: number; winRate: number; cycles: number; convenings: number };
+    77→  auditTail: { seq: number; kind: string; actor: string; hash: string; payload: string; at: string }[];
+    78→  auditCount: number;
+    79→  chainOk: boolean;
+    80→  oracleHealthy: boolean;
+    81→  lastError: string | null;
+    82→  at: string;
+    83→};
+    84→
+    85→type AuditRow = { seq: number; kind: string; actor: string; hash: string; payload: string; createdAt: Date };
+    86→
+    87→const EMPTY_PACKET = (agent: AgentName): SignalPacket => ({
+    88→  agent, direction: "FLAT", strength: 0, confidence: 0, detail: "No reading yet.", data: {},
+    89→});
+    90→
+    91→class DeskEngine extends EventEmitter {
+    92→  status: "IDLE" | "RUNNING" = "IDLE";
+    93→  sessionId: string | null = null;
+    94→  mode: DeskMode = "PAPER";
+    95→  modeReason = "";
+    96→  asset = "BTC";
+    97→  cadenceSec = 300;
+    98→  cycle = 0;
+    99→  phase: Phase = "idle";
+   100→  wallet: string | null = null;
+   101→  collateral: number | null = null;
+   102→  startingEquity = 1000;
+   103→  equity = 1000;
+   104→  realizedPnl = 0;
+   105→  lastExecAt: number | null = null;
+   106→  agentPackets: Record<AgentName, SignalPacket> = {
+   107→    MOMENTUM: EMPTY_PACKET("MOMENTUM"),
+   108→    VOLATILITY: EMPTY_PACKET("VOLATILITY"),
+   109→    SENTIMENT: EMPTY_PACKET("SENTIMENT"),
+   110→  };
+   111→  decision: DecisionView | null = null;
+   112→  openTrades: TradeView[] = [];
+   113→  settledTrades: TradeView[] = [];
+   114→  stats = { trades: 0, wins: 0, losses: 0, winRate: 0, cycles: 0, convenings: 0 };
+   115→  auditTail: AuditRow[] = [];
+   116→  auditCount = 0;
+   117→  chainOk = true;
+   118→  private auditSeq = 0;
+   119→  private prevHash = GENESIS_HASH;
+   120→  private timer: ReturnType<typeof setInterval> | null = null;
+   121→  private busy = false;
+   122→  private adapter: ExecutionAdapter = new PaperAdapter();
+   123→  private activeMarket: MarketCandidate | null = null;
+   124→  private lastQuote: BookQuote | null = null;
+   125→  lastError: string | null = null;
+   126→
+   127→  /* ------------------------------ lifecycle ------------------------------ */
+   128→
+   129→  async start(asset: string, cadenceSec: number, forcedMode?: DeskMode): Promise<{ ok: boolean; detail: string }> {
+   130→    if (this.status === "RUNNING") return { ok: false, detail: "Session already running" };
+   131→    const resolved = resolveMode();
+   132→    this.mode = forcedMode && forcedMode !== resolved.mode ? (getExchange() ? forcedMode : "PAPER") : resolved.mode;
+   133→    this.modeReason = this.mode === resolved.mode ? resolved.reason : `Requested ${forcedMode} but no funded desk wallet is configured — running PAPER`;
+   134→    this.asset = asset.toUpperCase();
+   135→    this.cadenceSec = cadenceSec;
+   136→    this.cycle = 0;
+   137→    this.realizedPnl = 0;
+   138→    this.lastExecAt = null;
+   139→    this.lastError = null;
+   140→    this.auditSeq = 0;
+   141→    this.prevHash = GENESIS_HASH;
+   142→    this.auditTail = [];
+   143→    this.auditCount = 0;
+   144→    this.agentPackets = { MOMENTUM: EMPTY_PACKET("MOMENTUM"), VOLATILITY: EMPTY_PACKET("VOLATILITY"), SENTIMENT: EMPTY_PACKET("SENTIMENT") };
+   145→    this.decision = null;
+   146→    this.openTrades = [];
+   147→    this.settledTrades = [];
+   148→    this.stats = { trades: 0, wins: 0, losses: 0, winRate: 0, cycles: 0, convenings: 0 };
+   149→    this.adapter = this.mode === "LIVE" ? new LiveAdapter() : new PaperAdapter();
+   150→    this.wallet = walletAddress();
+   151→    this.collateral = this.mode === "LIVE" && this.wallet ? await collateralBalance(this.wallet) : null;
+   152→    this.startingEquity = 1000;
+   153→    this.equity = this.mode === "LIVE" ? (this.collateral ?? 0) : this.startingEquity;
+   154→
+   155→    const session = await db.session.create({
+   156→      data: {
+   157→        mode: this.mode,
+   158→        asset: this.asset,
+   159→        cadenceSec: this.cadenceSec,
+   160→        status: "RUNNING",
+   161→        wallet: this.wallet,
+   162→        startingEquity: this.startingEquity,
+   163→        equity: this.equity,
+   164→        collateral: this.collateral ?? 0,
+   165→        modeReason: this.modeReason,
+   166→      },
+   167→    });
+   168→    this.sessionId = session.id;
+   169→    this.status = "RUNNING";
+   170→    this.phase = "idle";
+   171→    prices.ensurePolling(["BTC", "ETH"]);
+   172→    await this.audit("SESSION_START", "ENGINE", {
+   173→      mode: this.mode, asset: this.asset, cadenceSec: this.cadenceSec, adapter: this.adapter.name,
+   174→      wallet: this.wallet, reason: this.modeReason,
+   175→    });
+   176→    this.timer = setInterval(() => void this.tickCycle(), DESK.cycleIntervalMs);
+   177→    this.broadcast();
+   178→    void this.tickCycle(); // first cycle immediately
+   179→    return { ok: true, detail: `${this.mode} session started on ${this.asset} ${this.cadenceSec / 60}-minute contracts` };
+   180→  }
+   181→
+   182→  async stop(): Promise<{ ok: boolean; detail: string }> {
+   183→    if (this.status !== "RUNNING") return { ok: false, detail: "No running session" };
+   184→    if (this.timer) clearInterval(this.timer);
+   185→    this.timer = null;
+   186→    this.status = "IDLE";
+   187→    this.phase = "idle";
+   188→    await this.audit("SESSION_END", "ENGINE", { cycles: this.stats.cycles, realizedPnl: this.realizedPnl, trades: this.stats.trades });
+   189→    if (this.sessionId) {
+   190→      await db.session.update({
+   191→        where: { id: this.sessionId },
+   192→        data: { status: "STOPPED", endedAt: new Date(), realizedPnl: this.realizedPnl, equity: this.equity },
+   193→      });
+   194→    }
+   195→    this.broadcast();
+   196→    return { ok: true, detail: "Session stopped — ledger finalized" };
+   197→  }
+   198→
+   199→  /** Force one full decision cycle now (demo button). */
+   200→  forceCycle() {
+   201→    if (this.status === "RUNNING") void this.tickCycle(true);
+   202→  }
+   203→
+   204→  /* ---------------------------- decision loop ---------------------------- */
+   205→
+   206→  private async tickCycle(forced = false) {
+   207→    if (this.busy || this.status !== "RUNNING" || !this.sessionId) return;
+   208→    this.busy = true;
+   209→    try {
+   210→      this.cycle += 1;
+   211→      this.stats.cycles += 1;
+   212→
+   213→      // 1 — GATHER: signals from the three agents.
+   214→      this.phase = "gathering";
+   215→      this.broadcast();
+   216→      const series = prices.series(this.asset);
+   217→      const mom = momentumAgent(this.asset, series);
+   218→      const vol = volatilityAgent(this.asset, series);
+   219→      const senti = await sentimentAgent(this.asset);
+   220→      this.agentPackets = { MOMENTUM: mom, VOLATILITY: vol, SENTIMENT: senti };
+   221→      for (const s of [mom, vol, senti]) {
+   222→        await db.signal.create({ data: { sessionId: this.sessionId, agent: s.agent, direction: s.direction, strength: s.strength, confidence: s.confidence, detail: s.detail, data: JSON.stringify(s.data) } });
+   223→        await this.audit("SIGNAL", s.agent, { direction: s.direction, strength: Number(s.strength.toFixed(3)), confidence: Number(s.confidence.toFixed(3)), detail: s.detail });
+   224→      }
+   225→
+   226→      const activity =
+   227→        (mom.direction !== "FLAT" ? mom.strength * 0.45 : 0) +
+   228→        (vol.direction !== "FLAT" ? vol.strength * 0.35 : 0) +
+   229→        (senti.direction !== "FLAT" ? senti.strength * 0.2 : 0);
+   230→
+   231→      // 2 — Quiet cycle: no convene. Persist an audit heartbeat and move on.
+   232→      if (!forced && activity < DESK.quorumActivityThreshold) {
+   233→        await this.audit("CYCLE", "ENGINE", { cycle: this.cycle, activity: Number(activity.toFixed(3)), verdict: "quiet — below quorum threshold", spot: prices.get(this.asset)?.price ?? 0 });
+   234→        this.phase = "cooldown";
+   235→        this.broadcast();
+   236→        return;
+   237→      }
+   238→
+   239→      // 3 — CONVENE: pick the market, quote it, seat the council.
+   240→      this.phase = "convening";
+   241→      this.broadcast();
+   242→      this.activeMarket = await findMarket(this.asset, this.cadenceSec, DESK.minExpiryHeadroomSec);
+   243→      this.lastQuote = this.activeMarket ? await fetchUpQuote(this.activeMarket.upSymbol) : null;
+   244→      const priceState = prices.get(this.asset);
+   245→      const recent = await db.decision.findMany({
+   246→        where: { sessionId: this.sessionId },
+   247→        orderBy: { createdAt: "desc" },
+   248→        take: 3,
+   249→        select: { cycle: true, status: true, consensus: true, summary: true },
+   250→      });
+   251→      const recentForm = recent.map((d) => ({ cycle: d.cycle, status: d.status, consensus: d.consensus, pnl: null as number | null }));
+   252→
+   253→      const ctx: CouncilContext = {
+   254→        asset: this.asset,
+   255→        cadenceSec: this.activeMarket?.intervalSec ?? this.cadenceSec,
+   256→        marketSymbol: this.activeMarket ? `${this.activeMarket.upSymbol.split("#")[0]} (${Math.round(this.activeMarket.secondsLeft)}s left)` : null,
+   257→        secondsLeft: this.activeMarket?.secondsLeft ?? null,
+   258→        upBid: this.lastQuote?.bestBid ?? null,
+   259→        upAsk: this.lastQuote?.bestAsk ?? null,
+   260→        spot: priceState?.price ?? 0,
+   261→        priceSource: priceState?.source ?? "—",
+   262→        signals: [mom, vol, senti],
+   263→        recentForm,
+   264→      };
+   265→      const outcome = await conveneCouncil(ctx);
+   266→      this.stats.convenings += 1;
+   267→
+   268→      for (const b of outcome.ballots) {
+   269→        await db.councilVote.create({ data: { sessionId: this.sessionId!, decisionId: "PENDING", juror: b.juror, vote: b.vote, confidence: b.confidence, rationale: b.rationale } });
+   270→        await this.audit("VOTE", "COUNCIL", { juror: b.juror, vote: b.vote, confidence: Number(b.confidence.toFixed(2)), engine: b.engine, rationale: b.rationale });
+   271→      }
+   272→      await this.audit("CONSENSUS", "COUNCIL", { consensus: outcome.consensus, modelProb: Number(outcome.modelProb.toFixed(3)), summary: outcome.summary });
+   273→
+   274→      // Market + book audit trail
+   275→      if (this.activeMarket) {
+   276→        await this.audit("MARKET", "ENGINE", {
+   277→          symbol: this.activeMarket.upSymbol.split("#")[0], asset: this.activeMarket.asset,
+   278→          intervalSec: this.activeMarket.intervalSec, secondsLeft: Math.round(this.activeMarket.secondsLeft),
+   279→          upBid: this.lastQuote?.bestBid ?? null, upAsk: this.lastQuote?.bestAsk ?? null,
+   280→          onchainStatus: this.activeMarket.onchainStatus,
+   281→        });
+   282→      }
+   283→
+   284→      // 4 — RISK: deterministic gates.
+   285→      this.phase = "risk";
+   286→      this.broadcast();
+   287→      const venueProb = this.lastQuote?.bestAsk ?? this.activeMarket?.lastUpProb ?? null;
+   288→      const side: "YES" | "NO" = outcome.consensus === "DOWN" ? "NO" : "YES";
+   289→      const sideVenueProb = venueProb != null ? priceForSide(side, venueProb) : null;
+   290→      const winningConfidence =
+   291→        outcome.consensus === "SPLIT"
+   292→          ? 0
+   293→          : outcome.ballots.filter((b) => b.vote === (outcome.consensus === "UP" ? "YES" : "NO")).reduce((a, b) => a + b.confidence, 0) / Math.max(1, outcome.ballots.filter((b) => b.vote === (outcome.consensus === "UP" ? "YES" : "NO")).length);
+   294→      const gatesResult = runRiskGates({
+   295→        now: Date.now(),
+   296→        lastExecAt: this.lastExecAt,
+   297→        openPositions: this.openTrades.length,
+   298→        realizedPnl: this.realizedPnl,
+   299→        sessionAgeMs: 0,
+   300→        councilConfidence: winningConfidence,
+   301→        edge: sideVenueProb != null ? Math.abs(outcome.modelProb - sideVenueProb) : 0,
+   302→        secondsLeft: this.activeMarket?.secondsLeft ?? null,
+   303→        onchainStatusOk: this.activeMarket?.onchainStatus === 1,
+   304→        hasMarket: !!this.activeMarket,
+   305→      });
+   306→      for (const gate of gatesResult.gates) {
+   307→        await this.audit("RISK", "RISK", { gate: gate.gate, passed: gate.passed, detail: gate.detail });
+   308→      }
+   309→
+   310→      // Build the decision record now (id needed for votes/checks/trades)
+   311→      const decision = await db.decision.create({
+   312→        data: {
+   313→          sessionId: this.sessionId,
+   314→          cycle: this.cycle,
+   315→          asset: this.asset,
+   316→          marketSymbol: this.activeMarket ? this.activeMarket.upSymbol.split("#")[0] : null,
+   317→          marketId: this.activeMarket?.marketId ?? null,
+   318→          expiry: this.activeMarket?.expiry ?? null,
+   319→          entryProb: null,
+   320→          chosenSide: outcome.consensus === "SPLIT" ? null : side,
+   321→          status: "CONVENED",
+   322→          consensus: outcome.consensus,
+   323→          summary: outcome.summary,
+   324→          signals: JSON.stringify({ MOMENTUM: mom, VOLATILITY: vol, SENTIMENT: senti }),
+   325→        },
+   326→      });
+   327→      // Attach the pending votes to the real decision id.
+   328→      await db.councilVote.updateMany({ where: { sessionId: this.sessionId, decisionId: "PENDING" }, data: { decisionId: decision.id } });
+   329→
+   330→      let execDetail: string | null = null;
+   331→      let txHash: string | null = null;
+   332→      let entryProb: number | null = null;
+   333→
+   334→      if (outcome.consensus === "SPLIT") {
+   335→        await db.decision.update({ where: { id: decision.id }, data: { status: "NO_QUORUM" } });
+   336→        execDetail = "Council split — no trade ordered";
+   337→      } else if (!gatesResult.pass) {
+   338→        await db.decision.update({ where: { id: decision.id }, data: { status: "VETOED" } });
+   339→        execDetail = `Risk governor vetoed: ${gatesResult.gates.filter((g) => !g.passed).map((g) => g.gate).join(", ")}`;
+   340→      } else {
+   341→        // 5 — EXECUTE.
+   342→        this.phase = "executing";
+   343→        this.broadcast();
+   344→        const notional = this.mode === "LIVE" ? Math.max(1, (this.collateral ?? 0) * DESK.perTradeEquityShare) : this.equity * DESK.perTradeEquityShare;
+   345→        const result = await this.adapter.execute({
+   346→          symbol: this.activeMarket!.upSymbol,
+   347→          side,
+   348→          notional,
+   349→          quote: this.lastQuote ?? { bestBid: null, bestAsk: null, askDepth: null },
+   350→          modelProb: outcome.modelProb,
+   351→        });
+   352→        execDetail = result.detail;
+   353→        txHash = result.txHash;
+   354→        await this.audit("EXECUTION", "EXECUTOR", {
+   355→          adapter: this.adapter.name, side, notional: Number(notional.toFixed(2)),
+   356→          filled: result.filled, price: Number(result.price.toFixed(4)), size: Number(result.size.toFixed(4)), detail: result.detail, txHash: result.txHash,
+   357→        });
+   358→        if (result.ok && result.filled) {
+   359→          entryProb = result.price;
+   360→          this.lastExecAt = Date.now();
+   361→          const trade = await db.trade.create({
+   362→            data: {
+   363→              sessionId: this.sessionId, decisionId: decision.id,
+   364→              symbol: this.activeMarket!.upSymbol.split("#")[0], marketId: this.activeMarket!.marketId,
+   365→              side, price: result.price, size: result.size, notional: result.notional,
+   366→              mode: this.mode, status: "PLACED", txHash: result.txHash, entryProb: result.price,
+   367→            },
+   368→          });
+   369→          await db.decision.update({ where: { id: decision.id }, data: { status: "TRADED", entryProb: result.price } });
+   370→          this.stats.trades += 1;
+   371→          this.openTrades.unshift({
+   372→            id: trade.id, symbol: trade.symbol, side: trade.side, price: trade.price, size: trade.size,
+   373→            notional: trade.notional, status: "PLACED", txHash: trade.txHash, entryProb: trade.entryProb,
+   374→            lastProb: null, pnl: 0, markProb: sideVenueProb, secondsLeft: this.activeMarket?.secondsLeft ?? null,
+   375→            mode: this.mode, openedAt: trade.openedAt.toISOString(),
+   376→          });
+   377→        } else if (!result.ok) {
+   378→          await db.decision.update({ where: { id: decision.id }, data: { status: "EXEC_FAILED" } });
+   379→          this.lastError = result.detail;
+   380→        } else {
+   381→          await db.decision.update({ where: { id: decision.id }, data: { status: "HELD" } });
+   382→        }
+   383→      }
+   384→
+   385→      await db.riskCheck.createMany({
+   386→        data: gatesResult.gates.map((g) => ({ sessionId: this.sessionId!, decisionId: decision.id, gate: g.gate, passed: g.passed, detail: g.detail })),
+   387→      });
+   388→
+   389→      // 6 — SETTLE: resolve any expired positions.
+   390→      this.phase = "settling";
+   391→      await this.settleExpired();
+   392→
+   393→      this.decision = {
+   394→        id: decision.id, cycle: this.cycle,
+   395→        status: outcome.consensus === "SPLIT" ? "NO_QUORUM" : gatesResult.pass ? (entryProb != null ? "TRADED" : "HELD") : "VETOED",
+   396→        consensus: outcome.consensus, summary: outcome.summary, chosenSide: outcome.consensus === "SPLIT" ? null : side,
+   397→        entryProb, marketSymbol: this.activeMarket ? this.activeMarket.upSymbol.split("#")[0] : null,
+   398→        secondsLeft: this.activeMarket?.secondsLeft ?? null,
+   399→        votes: outcome.ballots, riskGates: gatesResult.gates, signals: [mom, vol, senti],
+   400→        modelProb: outcome.modelProb, venueProb,
+   401→        execDetail, txHash, at: new Date().toISOString(),
+   402→      };
+   403→      await this.audit("CYCLE", "ENGINE", {
+   404→        cycle: this.cycle, consensus: outcome.consensus, status: this.decision.status,
+   405→        modelProb: Number(outcome.modelProb.toFixed(3)), venueProb: venueProb != null ? Number(venueProb.toFixed(3)) : null,
+   406→        exec: execDetail,
+   407→      });
+   408→      this.phase = "cooldown";
+   409→      this.lastError = null;
+   410→      this.broadcast();
+   411→    } catch (e) {
+   412→      this.lastError = (e as Error).message;
+   413→      this.phase = "cooldown";
+   414→      try {
+   415→        await this.audit("ERROR", "ENGINE", { message: this.lastError?.slice(0, 300) });
+   416→      } catch { /* ledger itself failed — nothing more to do here */ }
+   417→      this.broadcast();
+   418→    } finally {
+   419→      this.busy = false;
+   420→    }
+   421→  }
+   422→
+   423→  /* ------------------------------ settlement ----------------------------- */
+   424→
+   425→  private async settleExpired() {
+   426→    if (!this.sessionId || this.openTrades.length === 0) return;
+   427→    const now = Date.now() / 1000;
+   428→    const stillOpen: TradeView[] = [];
+   429→    for (const t of this.openTrades) {
+   430→      const trade = await db.trade.findUnique({ where: { id: t.id } });
+   431→      if (!trade || !trade.decisionId) { stillOpen.push(t); continue; }
+   432→      const dec = await db.decision.findUnique({ where: { id: trade.decisionId } });
+   433→      const expirySec = dec?.expiry ?? null;
+   434→      if (expirySec == null || expirySec > now) { stillOpen.push(t); continue; }
+   435→
+   436→      // Expired — resolve outcome from the venue (works without a wallet).
+   437→      let win: boolean | null = null;
+   438→      let voided = false;
+   439→      let settleProb: number | null = null;
+   440→      try {
+   441→        const exchange = getExchange();
+   442→        if (exchange && trade.marketId) {
+   443→          const row = await exchange.client.getBinaryMarket(trade.marketId as `0x${string}`).catch(() => null);
+   444→          const winner = row?.winningOutcome ?? null;
+   445→          const payout = (row as unknown as { payoutNumerators?: string[] | null })?.payoutNumerators ?? null;
+   446→          if (winner != null) {
+   447→            win = winner === 0 ? trade.side === "YES" : trade.side === "NO";
+   448→            settleProb = winner === 0 ? 1 : 0;
+   449→          } else if (payout && payout.length === 2) {
+   450→            const [a, b] = payout.map(Number);
+   451→            if (a > 0 && b > 0) voided = true; // uniform vector — refunded
+   452→          }
+   453→        }
+   454→      } catch { /* fall through to heuristic */ }
+   455→      if (win == null && !voided && trade.lastProb != null) {
+   456→        // Heuristic: near-expiry Up probability above 50¢ ⇒ Up side wins.
+   457→        win = trade.lastProb >= 0.5 ? trade.side === "YES" : trade.side === "NO";
+   458→      }
+   459→
+   460→      let pnl = 0;
+   461→      let status = "PLACED";
+   462→      if (voided) {
+   463→        status = "REDEEMED";
+   464→        pnl = 0;
+   465→      } else if (win == null) {
+   466→        stillOpen.push(t);
+   467→        continue; // not resolvable yet — keep waiting
+   468→      } else {
+   469→        // Fixed-payout accounting: each contract pays 1 on the winning side.
+   470→        pnl = win ? trade.size * (1 - trade.price) : -trade.size * trade.price;
+   471→        status = win ? "SETTLED_WIN" : "SETTLED_LOSS";
+   472→        this.realizedPnl += pnl;
+   473→        if (win) this.stats.wins += 1; else this.stats.losses += 1;
+   474→        this.equity = this.mode === "LIVE" ? (this.collateral ?? 0) + this.realizedPnl : this.startingEquity + this.realizedPnl;
+   475→
+   476→        if (this.mode === "LIVE" && win) {
+   477→          try {
+   478→            const exchange = getExchange();
+   479→            if (exchange) {
+   480→              const raw = BigInt(Math.max(1, Math.round(trade.size * 10 ** DREAMDEX.collateralDecimals)));
+   481→              await exchange.trader.redeem({ market: trade.marketId as `0x${string}`, outcomeIdx: trade.side === "YES" ? 0 : 1, amount: raw });
+   482→              status = "REDEEMED";
+   483→            }
+   484→          } catch (e) {
+   485→            await this.audit("SETTLEMENT", "SETTLER", { note: "auto-redeem deferred", detail: (e as Error).message.slice(0, 160), tradeId: trade.id });
+   486→          }
+   487→        }
+   488→        await this.audit("SETTLEMENT", "SETTLER", {
+   489→          tradeId: trade.id, symbol: trade.symbol, side: trade.side, outcome: win ? "WIN" : "LOSS",
+   490→          pnl: Number(pnl.toFixed(4)), settleProb, entryProb: trade.entryProb,
+   491→        });
+   492→      }
+   493→      await db.trade.update({ where: { id: trade.id }, data: { status, pnl, settleProb, settledAt: new Date(), lastProb: trade.lastProb } });
+   494→      this.settledTrades.unshift({ ...t, status, pnl, settleProb, secondsLeft: 0 });
+   495→      if (this.settledTrades.length > 30) this.settledTrades.pop();
+   496→    }
+   497→    this.openTrades = stillOpen;
+   498→    this.stats.winRate = this.stats.wins + this.stats.losses > 0 ? this.stats.wins / (this.stats.wins + this.stats.losses) : 0;
+   499→  }
+   500→
+   501→  /** Refresh mark-to-market on open positions each broadcast. */
+   502→  private async markOpen() {
+   503→    if (!this.activeMarket || this.openTrades.length === 0) return;
+   504→    const q = await fetchUpQuote(this.activeMarket.upSymbol).catch(() => null);
+   505→    const mid = q && q.bestAsk != null && q.bestBid != null ? (q.bestAsk + q.bestBid) / 2 : q?.bestAsk ?? this.activeMarket.lastUpProb ?? null;
+   506→    if (mid == null) return;
+   507→    for (const t of this.openTrades) {
+   508→      t.lastProb = mid;
+   509→      // Contracts mark at the side's own probability; NO = 1 − Up.
+   510→      const sideProb = priceForSide(t.side as "YES" | "NO", mid);
+   511→      t.markProb = sideProb;
+   512→      t.pnl = t.size * (sideProb - t.price);
+   513→      t.secondsLeft = this.activeMarket.secondsLeft;
+   514→    }
+   515→    const unrealized = this.openTrades.reduce((a, t) => a + t.pnl, 0);
+   516→    this.equity = this.mode === "LIVE" ? (this.collateral ?? 0) + this.realizedPnl + unrealized : this.startingEquity + this.realizedPnl + unrealized;
+   517→  }
+   518→
+   519→  /* ------------------------------ audit trail ---------------------------- */
+   520→
+   521→  private async audit(kind: string, actor: string, payload: unknown) {
+   522→    if (!this.sessionId) return;
+   523→    const seq = ++this.auditSeq;
+   524→    const ts = new Date();
+   525→    const payloadStr = JSON.stringify(payload);
+   526→    const hash = computeAuditHash({ seq, kind, actor, payload: payloadStr, prevHash: this.prevHash, ts });
+   527→    await db.auditEvent.create({ data: { sessionId: this.sessionId, seq, kind, actor, hash, prevHash: this.prevHash, payload: payloadStr, createdAt: ts } });
+   528→    this.prevHash = hash;
+   529→    this.auditCount = seq;
+   530→    this.auditTail.unshift({ seq, kind, actor, hash, payload: payloadStr, createdAt: ts });
+   531→    if (this.auditTail.length > 60) this.auditTail.pop();
+   532→  }
+   533→
+   534→  /* ------------------------------- snapshot ------------------------------ */
+   535→
+   536→  broadcast() {
+   537→    void this.markOpen().finally(() => this.emit("update", this.snapshot()));
+   538→  }
+   539→
+   540→  snapshot(): Snapshot {
+   541→    const ps = prices.get(this.asset);
+   542→    return {
+   543→      status: this.status,
+   544→      mode: this.mode,
+   545→      modeReason: this.modeReason,
+   546→      asset: this.asset,
+   547→      cadenceSec: this.cadenceSec,
+   548→      cycle: this.cycle,
+   549→      phase: this.phase,
+   550→      sessionId: this.sessionId,
+   551→      wallet: this.wallet,
+   552→      collateral: this.collateral,
+   553→      equity: this.equity,
+   554→      startingEquity: this.startingEquity,
+   555→      realizedPnl: this.realizedPnl,
+   556→      price: ps ? { asset: ps.asset, price: ps.price, ema: ps.ema, source: ps.source, history: ps.history.slice(-120) } : null,
+   557→      prices: prices.all().map((p) => ({ asset: p.asset, price: p.price, source: p.source })),
+   558→      agents: this.agentPackets,
+   559→      decision: this.decision,
+   560→      openTrades: this.openTrades,
+   561→      settledTrades: this.settledTrades,
+   562→      stats: this.stats,
+   563→      auditTail: this.auditTail.map((a) => ({ seq: a.seq, kind: a.kind, actor: a.actor, hash: a.hash, payload: a.payload, at: a.createdAt.toISOString() })),
+   564→      auditCount: this.auditCount,
+   565→      chainOk: this.chainOk,
+   566→      oracleHealthy: prices.oracleHealthy,
+   567→      lastError: this.lastError,
+   568→      at: new Date().toISOString(),
+   569→    };
+   570→  }
+   571→}
+   572→
+   573→const g = globalThis as unknown as { __dreamdeskEngine?: DeskEngine };
+   574→export const engine: DeskEngine = g.__dreamdeskEngine ?? new DeskEngine();
+   575→g.__dreamdeskEngine = engine;
+   576→

@@ -21,7 +21,7 @@ export const DESK = {
   // Decision loop cadence while a session is RUNNING (ms)
   cycleIntervalMs: 12_000,
   // LLM council convenes only when signal activity exceeds this (or forced)
-  quorumActivityThreshold: 0.55,
+  quorumActivityThreshold: 0.32,
   // Risk governor gates
   minConfidence: 0.6,
   maxOpenPositions: 3,

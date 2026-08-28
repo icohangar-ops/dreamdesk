@@ -13,7 +13,7 @@ import { momentumAgent, volatilityAgent, sentimentAgent, type SignalPacket, type
 import { conveneCouncil, type JurorBallot, type CouncilContext } from "./council";
 import { runRiskGates, type RiskGate } from "./risk";
 import { PaperAdapter, LiveAdapter, type ExecutionAdapter, priceForSide } from "./adapters";
-import { findMarket, fetchUpQuote, getExchange, walletAddress, collateralBalance, type MarketCandidate, type BookQuote } from "./exchange";
+import { findMarket, fetchUpQuote, getExchange, getAnyExchange, walletAddress, collateralBalance, type MarketCandidate, type BookQuote } from "./exchange";
 import type { Tick } from "./indicators";
 
 export type Phase = "idle" | "gathering" | "convening" | "risk" | "executing" | "settling" | "cooldown";
@@ -49,6 +49,7 @@ export type TradeView = {
   lastProb: number | null;
   pnl: number;
   markProb: number | null;
+  settleProb?: number | null;
   secondsLeft: number | null;
   mode: string;
   openedAt: string;
@@ -119,6 +120,7 @@ class DeskEngine extends EventEmitter {
   private prevHash = GENESIS_HASH;
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
+  private pendingForce = false;
   private adapter: ExecutionAdapter = new PaperAdapter();
   private activeMarket: MarketCandidate | null = null;
   private lastQuote: BookQuote | null = null;
@@ -196,9 +198,14 @@ class DeskEngine extends EventEmitter {
     return { ok: true, detail: "Session stopped — ledger finalized" };
   }
 
-  /** Force one full decision cycle now (demo button). */
+  /** Force one full decision cycle now (demo button). If a tick is mid-flight, queue the force so it can't be swallowed. */
   forceCycle() {
-    if (this.status === "RUNNING") void this.tickCycle(true);
+    if (this.status !== "RUNNING") return;
+    if (this.busy) {
+      this.pendingForce = true;
+      return;
+    }
+    void this.tickCycle(true);
   }
 
   /* ---------------------------- decision loop ---------------------------- */
@@ -265,8 +272,25 @@ class DeskEngine extends EventEmitter {
       const outcome = await conveneCouncil(ctx);
       this.stats.convenings += 1;
 
+      // Record the verdict + ballots (decision id first, votes reference it directly).
+      const decision = await db.decision.create({
+        data: {
+          sessionId: this.sessionId,
+          cycle: this.cycle,
+          asset: this.asset,
+          marketSymbol: this.activeMarket ? this.activeMarket.upSymbol.split("#")[0] : null,
+          marketId: this.activeMarket?.marketId ?? null,
+          expiry: this.activeMarket?.expiry ?? null,
+          entryProb: null,
+          chosenSide: outcome.consensus === "SPLIT" ? null : outcome.consensus === "DOWN" ? "NO" : "YES",
+          status: "CONVENED",
+          consensus: outcome.consensus,
+          summary: outcome.summary,
+          signals: JSON.stringify({ MOMENTUM: mom, VOLATILITY: vol, SENTIMENT: senti }),
+        },
+      });
       for (const b of outcome.ballots) {
-        await db.councilVote.create({ data: { sessionId: this.sessionId!, decisionId: "PENDING", juror: b.juror, vote: b.vote, confidence: b.confidence, rationale: b.rationale } });
+        await db.councilVote.create({ data: { sessionId: this.sessionId!, decisionId: decision.id, juror: b.juror, vote: b.vote, confidence: b.confidence, rationale: b.rationale } });
         await this.audit("VOTE", "COUNCIL", { juror: b.juror, vote: b.vote, confidence: Number(b.confidence.toFixed(2)), engine: b.engine, rationale: b.rationale });
       }
       await this.audit("CONSENSUS", "COUNCIL", { consensus: outcome.consensus, modelProb: Number(outcome.modelProb.toFixed(3)), summary: outcome.summary });
@@ -307,25 +331,7 @@ class DeskEngine extends EventEmitter {
         await this.audit("RISK", "RISK", { gate: gate.gate, passed: gate.passed, detail: gate.detail });
       }
 
-      // Build the decision record now (id needed for votes/checks/trades)
-      const decision = await db.decision.create({
-        data: {
-          sessionId: this.sessionId,
-          cycle: this.cycle,
-          asset: this.asset,
-          marketSymbol: this.activeMarket ? this.activeMarket.upSymbol.split("#")[0] : null,
-          marketId: this.activeMarket?.marketId ?? null,
-          expiry: this.activeMarket?.expiry ?? null,
-          entryProb: null,
-          chosenSide: outcome.consensus === "SPLIT" ? null : side,
-          status: "CONVENED",
-          consensus: outcome.consensus,
-          summary: outcome.summary,
-          signals: JSON.stringify({ MOMENTUM: mom, VOLATILITY: vol, SENTIMENT: senti }),
-        },
-      });
-      // Attach the pending votes to the real decision id.
-      await db.councilVote.updateMany({ where: { sessionId: this.sessionId, decisionId: "PENDING" }, data: { decisionId: decision.id } });
+      // Decision row already exists above — gates are persisted after evaluation.
 
       let execDetail: string | null = null;
       let txHash: string | null = null;
@@ -417,6 +423,11 @@ class DeskEngine extends EventEmitter {
       this.broadcast();
     } finally {
       this.busy = false;
+      // A forced cycle requested mid-tick runs right after this one lands.
+      if (this.pendingForce && this.status === "RUNNING") {
+        this.pendingForce = false;
+        void this.tickCycle(true);
+      }
     }
   }
 
@@ -438,7 +449,7 @@ class DeskEngine extends EventEmitter {
       let voided = false;
       let settleProb: number | null = null;
       try {
-        const exchange = getExchange();
+        const exchange = getAnyExchange();
         if (exchange && trade.marketId) {
           const row = await exchange.client.getBinaryMarket(trade.marketId as `0x${string}`).catch(() => null);
           const winner = row?.winningOutcome ?? null;
@@ -478,7 +489,7 @@ class DeskEngine extends EventEmitter {
             const exchange = getExchange();
             if (exchange) {
               const raw = BigInt(Math.max(1, Math.round(trade.size * 10 ** DREAMDEX.collateralDecimals)));
-              await exchange.trader.redeem({ market: trade.marketId as `0x${string}`, outcomeIdx: trade.side === "YES" ? 0 : 1, amount: raw });
+              await exchange.trader.redeem({ marketId: trade.marketId as `0x${string}`, outcomeIdx: trade.side === "YES" ? 0 : 1, amount: raw });
               status = "REDEEMED";
             }
           } catch (e) {
