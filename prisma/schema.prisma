@@ -1,0 +1,142 @@
+// DreamDesk — auditable multi-agent trading desk for dreamDEX Event Contracts
+// Data model: sessions orchestrate decision cycles; every artifact is preserved
+// and hash-chained in AuditEvent for tamper-evident review.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id             String   @id @default(cuid())
+  mode           String // LIVE | PAPER
+  asset          String // BTC | ETH
+  cadenceSec     Int // preferred market window in seconds (300, 3600)
+  status         String // RUNNING | STOPPED
+  wallet         String? // desk wallet address in LIVE mode
+  startingEquity Float
+  equity         Float // current paper equity (PAPER mode)
+  realizedPnl    Float    @default(0)
+  collateral     Float    @default(0) // live tUSDC balance snapshot
+  modeReason     String? // why PAPER was chosen (e.g. no private key)
+  startedAt      DateTime @default(now())
+  endedAt        DateTime?
+  decisions      Decision[]
+  trades         Trade[]
+  audits         AuditEvent[]
+  signals        Signal[]
+  votes          CouncilVote[]
+  riskChecks     RiskCheck[]
+}
+
+model Decision {
+  id           String   @id @default(cuid())
+  sessionId    String
+  cycle        Int
+  asset        String
+  marketSymbol String? // e.g. BTC-0-29AUG26-1830/tUSDC#YES
+  marketId     String?
+  expiry       Int? // unix seconds
+  entryProb    Float? // Up probability at entry
+  chosenSide   String? // YES (Up) | NO (Down)
+  status       String // CONVENED | TRADED | NO_QUORUM | VETOED | EXEC_FAILED | HELD
+  consensus    String? // UP | DOWN | SPLIT
+  summary      String
+  signals      String // JSON snapshot of agent signals
+  createdAt    DateTime @default(now())
+  session      Session  @relation(fields: [sessionId], references: [id])
+  votes        CouncilVote[]
+  riskChecks   RiskCheck[]
+  trades       Trade[]
+
+  @@index([sessionId, createdAt])
+}
+
+model Signal {
+  id         String   @id @default(cuid())
+  sessionId  String
+  decisionId String?
+  agent      String // MOMENTUM | VOLATILITY | SENTIMENT
+  direction  String // UP | DOWN | FLAT
+  strength   Float // 0..1 conviction
+  confidence Float // 0..1
+  detail     String // human-readable explanation
+  data       String? // JSON raw indicator values
+  createdAt  DateTime @default(now())
+  session    Session  @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, createdAt])
+}
+
+model CouncilVote {
+  id         String   @id @default(cuid())
+  sessionId  String
+  decisionId String
+  juror      String // TREND | CONTRARIAN | SENTINEL
+  vote       String // YES | NO | ABSTAIN  (YES = buy Up contract)
+  confidence Float
+  rationale  String
+  createdAt  DateTime @default(now())
+  session    Session  @relation(fields: [sessionId], references: [id])
+  decision   Decision @relation(fields: [decisionId], references: [id])
+
+  @@index([decisionId])
+}
+
+model RiskCheck {
+  id         String   @id @default(cuid())
+  sessionId  String
+  decisionId String
+  gate       String
+  passed     Boolean
+  detail     String
+  createdAt  DateTime @default(now())
+  session    Session  @relation(fields: [sessionId], references: [id])
+  decision   Decision @relation(fields: [decisionId], references: [id])
+
+  @@index([decisionId])
+}
+
+model Trade {
+  id          String    @id @default(cuid())
+  sessionId   String
+  decisionId  String?
+  symbol      String // outcome symbol traded
+  marketId    String?
+  side        String // YES | NO
+  price       Float // probability paid
+  size        Float // contracts
+  notional    Float // collateral spent
+  mode        String // LIVE | PAPER
+  status      String // PLACED | SETTLED_WIN | SETTLED_LOSS | FAILED | REDEEMED
+  txHash      String? // on Somnia testnet in LIVE mode
+  entryProb   Float
+  lastProb    Float?
+  settleProb  Float? // final Up probability at expiry
+  pnl         Float     @default(0)
+  openedAt    DateTime  @default(now())
+  settledAt   DateTime?
+  session     Session   @relation(fields: [sessionId], references: [id])
+  decision    Decision? @relation(fields: [decisionId], references: [id])
+
+  @@index([sessionId, status])
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  sessionId String
+  seq       Int
+  kind      String // SESSION_START | PRICE | SIGNAL | VOTE | RISK | EXECUTION | SETTLEMENT | SESSION_END | ...
+  actor     String // ENGINE | MOMENTUM | VOLATILITY | SENTIMENT | COUNCIL | RISK | EXECUTOR | SETTLER
+  hash      String // sha256(prevHash | seq | kind | actor | payload | ts)
+  prevHash  String
+  payload   String // JSON
+  createdAt DateTime @default(now())
+  session   Session  @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, seq])
+}
