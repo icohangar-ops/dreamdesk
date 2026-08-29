@@ -1,0 +1,14 @@
+PASS — paper YES fill (price 0.63)
+PASS — paper YES price = ask + 1¢ (0.63)
+PASS — paper YES size = notional/price (79.36507936507937)
+PASS — paper NO price = 1 − (ask+1¢) (0.37)
+PASS — paper empty book → no fill (No ask-side liquidity — paper order expired unfilled (IOC))
+PASS — win pays size×(1−price) (29.365)
+PASS — loss costs size×price (-50.000)
+PASS — asymmetry sanity: 63¢ ticket wins 29.37, loses 50
+PASS — priceForSide(NO)
+PASS — priceForSide(YES)
+PASS — verifyChain accepts intact chain (All 2 events verified — chain intact from genesis)
+PASS — verifyChain rejects tampered payload (Event #1 payload does not match its committed hash (tamper detected))
+
+ALL CHECKS PASSED

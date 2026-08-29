@@ -1,0 +1,372 @@
+{
+ "ok": true,
+ "verification": {
+  "ok": true,
+  "length": 1443,
+  "brokenAt": null,
+  "detail": "All 1443 events verified \u2014 chain intact from genesis"
+ },
+ "events_total": 1443,
+ "events": [
+  {
+   "seq": 1,
+   "kind": "SESSION_START",
+   "actor": "ENGINE",
+   "hash": "0xe61f6677b2fc9c1dd1df0fe179aeef28fb2bb5960d4083c2d4da8fb00d69871c",
+   "prevHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+   "payload": {
+    "mode": "PAPER",
+    "asset": "BTC",
+    "cadenceSec": 300,
+    "adapter": "paper",
+    "wallet": null,
+    "reason": "No DREAMDESK_PRIVATE_KEY set \u2014 simulating fills on real testnet market data"
+   },
+   "at": "2026-08-29T12:55:22.242Z"
+  },
+  {
+   "seq": 112,
+   "kind": "CONSENSUS",
+   "actor": "COUNCIL",
+   "hash": "0xdf76e67e86b46d1581f6d3d69ca95651fd2ce3c5b249e3e7e740108607fe00fd",
+   "prevHash": "0x581c02bc7f9ec7d64320eb9e820089398a28bc98613e3f86a62fc8609a4c157c",
+   "payload": {
+    "consensus": "SPLIT",
+    "modelProb": 0.516,
+    "summary": "Council split 0\u2191/0\u2193 \u2014 no trade. TREND:ABSTAIN CONTRARIAN:ABSTAIN SENTINEL:ABSTAIN"
+   },
+   "at": "2026-08-29T13:00:45.700Z"
+  },
+  {
+   "seq": 153,
+   "kind": "CONSENSUS",
+   "actor": "COUNCIL",
+   "hash": "0xa17c139cd4956862ac6f8408eb090a2b161cb7c2fb922136b8630db6b42f0326",
+   "prevHash": "0x21d19f00dee8caaa1e94da05513d0a33ab694a78dcf34d3b18259109c2da4a4d",
+   "payload": {
+    "consensus": "SPLIT",
+    "modelProb": 0.519,
+    "summary": "Council split 0\u2191/1\u2193 \u2014 no trade. TREND:ABSTAIN CONTRARIAN:NO SENTINEL:ABSTAIN"
+   },
+   "at": "2026-08-29T13:02:06.984Z"
+  },
+  {
+   "seq": 218,
+   "kind": "CONSENSUS",
+   "actor": "COUNCIL",
+   "hash": "0x9fd8403b1f0c0479d1e0d871e3e7934f9d170d9c60c0f16080661e6d5ed2c535",
+   "prevHash": "0xa679220d9d628f820025a4675ced9665c0b0783b4d7be7319a01071a1ed0c554",
+   "payload": {
+    "consensus": "SPLIT",
+    "modelProb": 0.414,
+    "summary": "Council split 1\u2191/0\u2193 \u2014 no trade. TREND:ABSTAIN CONTRARIAN:YES SENTINEL:ABSTAIN"
+   },
+   "at": "2026-08-29T13:04:41.154Z"
+  },
+  {
+   "seq": 235,
+   "kind": "CONSENSUS",
+   "actor": "COUNCIL",
+   "hash": "0xca710aed947d3a8ecc68b94c40337b3e9802bdeb2f63c5ff49196df2b20f0f65",
+   "prevHash": "0x0de943524a219d31efd79abaec56ca63ea21d69c5dc3333eb1d3011a113dacaf",
+   "payload": {
+    "consensus": "SPLIT",
+    "modelProb": 0.41,
+    "summary": "Council split 1\u2191/0\u2193 \u2014 no trade. TREND:ABSTAIN CONTRARIAN:YES SENTINEL:ABSTAIN"
+   },
+   "at": "2026-08-29T13:04:53.198Z"
+  },
+  {
+   "seq": 252,
+   "kind": "CONSENSUS",
+   "actor": "COUNCIL",
+   "hash": "0x3c57aa0e5ff158a81781013a85ff0a72d5c1938f22aa631734eebd9f2ee2993b",
+   "prevHash": "0x42179460af940283ff34c8600bba2a48fea5df15118b44c827692c992be864b9",
+   "payload": {
+    "consensus": "SPLIT",
+    "modelProb": 0.406,
+    "summary": "Council split 1\u2191/0\u2193 \u2014 no trade. TREND:ABSTAIN CONTRARIAN:YES SENTINEL:ABSTAIN"
+   },
+   "at": "2026-08-29T13:05:05.041Z"
+  },
+  {
+   "seq": 1424,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0x3ef238f1c8263b1317a8e8ad8189b08af37b0e5da6f640a2015ddef1c9a68906",
+   "prevHash": "0x46804650879a6ac7f979cdda6e6b80a2a6299f974813292762ed91e0394de7d9",
+   "payload": {
+    "gate": "Cooldown 20s",
+    "passed": true,
+    "detail": "No prior execution"
+   },
+   "at": "2026-08-29T13:39:51.743Z"
+  },
+  {
+   "seq": 1425,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0x9f92e7d19f512e0bb20ff94f35cd4e10b7084af5ff387e2e856a937e254c042d",
+   "prevHash": "0x3ef238f1c8263b1317a8e8ad8189b08af37b0e5da6f640a2015ddef1c9a68906",
+   "payload": {
+    "gate": "Session loss limit",
+    "passed": true,
+    "detail": "Realized 0.00 tUSDC (limit -15)"
+   },
+   "at": "2026-08-29T13:39:51.744Z"
+  },
+  {
+   "seq": 1426,
+   "kind": "CYCLE",
+   "actor": "ENGINE",
+   "hash": "0xd94c5c4845bb0f1a06606ae3639505391a65b7563321d876996db68bd8c320ec",
+   "prevHash": "0x9f92e7d19f512e0bb20ff94f35cd4e10b7084af5ff387e2e856a937e254c042d",
+   "payload": {
+    "cycle": 223,
+    "consensus": "SPLIT",
+    "status": "NO_QUORUM",
+    "modelProb": 0.725,
+    "venueProb": 0.886,
+    "exec": "Council split \u2014 no trade ordered"
+   },
+   "at": "2026-08-29T13:39:51.747Z"
+  },
+  {
+   "seq": 1427,
+   "kind": "SIGNAL",
+   "actor": "MOMENTUM",
+   "hash": "0x68c54deb8929bfe66f78e4680377693f8d13736c986c49b2dee3fe9d2c3702be",
+   "prevHash": "0xd94c5c4845bb0f1a06606ae3639505391a65b7563321d876996db68bd8c320ec",
+   "payload": {
+    "direction": "DOWN",
+    "strength": 0.348,
+    "confidence": 0.466,
+    "detail": "DOWN bias: EMA9 below EMA21 by 0.012%, 0.061% 30-tick rate-of-change."
+   },
+   "at": "2026-08-29T13:39:58.653Z"
+  },
+  {
+   "seq": 1428,
+   "kind": "SIGNAL",
+   "actor": "VOLATILITY",
+   "hash": "0x2f6bc1aaf15890802449ea801573b694edda090d19ccbaa2140264072da4611e",
+   "prevHash": "0x68c54deb8929bfe66f78e4680377693f8d13736c986c49b2dee3fe9d2c3702be",
+   "payload": {
+    "direction": "DOWN",
+    "strength": 0.636,
+    "confidence": 0.588,
+    "detail": "DOWN breakout: price -1.59\u03c3 off the 60-tick mean in a quiet tape (\u03c3_tick 0.006%)."
+   },
+   "at": "2026-08-29T13:39:58.657Z"
+  },
+  {
+   "seq": 1429,
+   "kind": "SIGNAL",
+   "actor": "SENTIMENT",
+   "hash": "0xd52beaadeaf256a35ecd895255c321aeb2f62ff894689144e0e210338f225a0d",
+   "prevHash": "0x2f6bc1aaf15890802449ea801573b694edda090d19ccbaa2140264072da4611e",
+   "payload": {
+    "direction": "UP",
+    "strength": 0.65,
+    "confidence": 0.65,
+    "detail": "LLM read: Bitcoin shows modest upward momentum amid mixed macro signals and technical support Drivers: Asian session buying pressure; US inflation data due; Key technical support holding."
+   },
+   "at": "2026-08-29T13:39:58.659Z"
+  },
+  {
+   "seq": 1430,
+   "kind": "VOTE",
+   "actor": "COUNCIL",
+   "hash": "0x09260780a1d8578c6450f741d67b87f00b4b4ff9a88501a3ca7d3dc5f444f2ab",
+   "prevHash": "0xd52beaadeaf256a35ecd895255c321aeb2f62ff894689144e0e210338f225a0d",
+   "payload": {
+    "juror": "TREND",
+    "vote": "ABSTAIN",
+    "confidence": 0.37,
+    "engine": "heuristic",
+    "rationale": "Heuristic trend read: directional score -0.17."
+   },
+   "at": "2026-08-29T13:40:03.603Z"
+  },
+  {
+   "seq": 1431,
+   "kind": "VOTE",
+   "actor": "COUNCIL",
+   "hash": "0xbbcaa0aca56745f2bc526ce156f1db294fc58e2f2e54332585d86c567375f72e",
+   "prevHash": "0x09260780a1d8578c6450f741d67b87f00b4b4ff9a88501a3ca7d3dc5f444f2ab",
+   "payload": {
+    "juror": "CONTRARIAN",
+    "vote": "NO",
+    "confidence": 0.53,
+    "engine": "heuristic",
+    "rationale": "Heuristic contrarian read: Up ask 89.9\u00a2 vs score -0.17."
+   },
+   "at": "2026-08-29T13:40:03.607Z"
+  },
+  {
+   "seq": 1432,
+   "kind": "VOTE",
+   "actor": "COUNCIL",
+   "hash": "0x1c1b89d93da4b6510e809c7269e5f7b1b38161afeb600e8761c3ce87d3c6c548",
+   "prevHash": "0xbbcaa0aca56745f2bc526ce156f1db294fc58e2f2e54332585d86c567375f72e",
+   "payload": {
+    "juror": "SENTINEL",
+    "vote": "ABSTAIN",
+    "confidence": 0.3,
+    "engine": "heuristic",
+    "rationale": "Heuristic sentinel read: regime quiet, score -0.17."
+   },
+   "at": "2026-08-29T13:40:03.616Z"
+  },
+  {
+   "seq": 1433,
+   "kind": "CONSENSUS",
+   "actor": "COUNCIL",
+   "hash": "0x4634cd936a516b9ac0e7c160193d246192d75848ed9b910b572a8a5e5ced655d",
+   "prevHash": "0x1c1b89d93da4b6510e809c7269e5f7b1b38161afeb600e8761c3ce87d3c6c548",
+   "payload": {
+    "consensus": "SPLIT",
+    "modelProb": 0.738,
+    "summary": "Council split 0\u2191/1\u2193 \u2014 no trade. TREND:ABSTAIN CONTRARIAN:NO SENTINEL:ABSTAIN"
+   },
+   "at": "2026-08-29T13:40:03.618Z"
+  },
+  {
+   "seq": 1434,
+   "kind": "MARKET",
+   "actor": "ENGINE",
+   "hash": "0xb7b2d876deaaf235a04f9b2f0146245e5e273e26649ea098090c385e02ae7c7d",
+   "prevHash": "0x4634cd936a516b9ac0e7c160193d246192d75848ed9b910b572a8a5e5ced655d",
+   "payload": {
+    "symbol": "BTC-0-29AUG26-1400/tUSDC",
+    "asset": "BTC",
+    "intervalSec": 3600,
+    "secondsLeft": 1201,
+    "upBid": 0.877,
+    "upAsk": 0.899,
+    "onchainStatus": 1
+   },
+   "at": "2026-08-29T13:40:03.621Z"
+  },
+  {
+   "seq": 1435,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0x6fbe80d5652d9a9d6e1cb7f17bf181f950cec59c06afe53557e57197bc5ee44f",
+   "prevHash": "0xb7b2d876deaaf235a04f9b2f0146245e5e273e26649ea098090c385e02ae7c7d",
+   "payload": {
+    "gate": "Market selected",
+    "passed": true,
+    "detail": "Live dreamDEX event contract matched"
+   },
+   "at": "2026-08-29T13:40:03.623Z"
+  },
+  {
+   "seq": 1436,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0x935a359b7431f4fa4010ad42865c08358e37d6a58720e28060411cb6f8ac1b13",
+   "prevHash": "0x6fbe80d5652d9a9d6e1cb7f17bf181f950cec59c06afe53557e57197bc5ee44f",
+   "payload": {
+    "gate": "On-chain trading status",
+    "passed": true,
+    "detail": "Market status = Trading (verified on-chain)"
+   },
+   "at": "2026-08-29T13:40:03.627Z"
+  },
+  {
+   "seq": 1437,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0xf26458b6b354fe4c7caad0587d63224a453e43f9c4795a11252392bb0c8f587d",
+   "prevHash": "0x935a359b7431f4fa4010ad42865c08358e37d6a58720e28060411cb6f8ac1b13",
+   "payload": {
+    "gate": "Expiry headroom",
+    "passed": true,
+    "detail": "1201s left (min 120s)"
+   },
+   "at": "2026-08-29T13:40:03.628Z"
+  },
+  {
+   "seq": 1438,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0x15a27dd80a3233f4643b56c4a0aa28a199174c8124755ff3329fce3b7f60e071",
+   "prevHash": "0xf26458b6b354fe4c7caad0587d63224a453e43f9c4795a11252392bb0c8f587d",
+   "payload": {
+    "gate": "Council confidence \u2265 0.6",
+    "passed": false,
+    "detail": "Winning-side conviction 0.00"
+   },
+   "at": "2026-08-29T13:40:03.631Z"
+  },
+  {
+   "seq": 1439,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0xa35d4db320a88e2a774fc9ad3f6526e076e901b8e5ddf09bd27b33fb08fa002b",
+   "prevHash": "0x15a27dd80a3233f4643b56c4a0aa28a199174c8124755ff3329fce3b7f60e071",
+   "payload": {
+    "gate": "Edge \u2265 8\u00a2",
+    "passed": false,
+    "detail": "\u221216.1\u00a2 value vs venue ask"
+   },
+   "at": "2026-08-29T13:40:03.633Z"
+  },
+  {
+   "seq": 1440,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0xee6e9afbe6469029bc45ccc16c55b3b18bef38a070f76f5149ed13377b208717",
+   "prevHash": "0xa35d4db320a88e2a774fc9ad3f6526e076e901b8e5ddf09bd27b33fb08fa002b",
+   "payload": {
+    "gate": "Open positions < 3",
+    "passed": true,
+    "detail": "0 open"
+   },
+   "at": "2026-08-29T13:40:03.635Z"
+  },
+  {
+   "seq": 1441,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0x35692372f959f28e35d00b4b514083f63faf4ed77fba625e2c07cb3ce43d6d2b",
+   "prevHash": "0xee6e9afbe6469029bc45ccc16c55b3b18bef38a070f76f5149ed13377b208717",
+   "payload": {
+    "gate": "Cooldown 20s",
+    "passed": true,
+    "detail": "No prior execution"
+   },
+   "at": "2026-08-29T13:40:03.641Z"
+  },
+  {
+   "seq": 1442,
+   "kind": "RISK",
+   "actor": "RISK",
+   "hash": "0x481c8e758597b4210491e9777ae1d4cb950eea3bda4308615f76f9d23948ba17",
+   "prevHash": "0x35692372f959f28e35d00b4b514083f63faf4ed77fba625e2c07cb3ce43d6d2b",
+   "payload": {
+    "gate": "Session loss limit",
+    "passed": true,
+    "detail": "Realized 0.00 tUSDC (limit -15)"
+   },
+   "at": "2026-08-29T13:40:03.646Z"
+  },
+  {
+   "seq": 1443,
+   "kind": "CYCLE",
+   "actor": "ENGINE",
+   "hash": "0x3ece941a9986eae44de090a62cea8cf74fa6a04b3233773cba5bf31aa607776f",
+   "prevHash": "0x481c8e758597b4210491e9777ae1d4cb950eea3bda4308615f76f9d23948ba17",
+   "payload": {
+    "cycle": 224,
+    "consensus": "SPLIT",
+    "status": "NO_QUORUM",
+    "modelProb": 0.738,
+    "venueProb": 0.899,
+    "exec": "Council split \u2014 no trade ordered"
+   },
+   "at": "2026-08-29T13:40:03.668Z"
+  }
+ ]
+}
