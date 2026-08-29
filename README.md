@@ -97,6 +97,7 @@ A narrated walkthrough — the pipeline, the council, the gates, and the hash-ch
 
 - `docs/demo/dreamdesk-demo-3min.mp4` (also attached to the DoraHacks BUIDL)
 - Thumbnail: `docs/screenshots/thumbnail-1280x720.png`
+- DoraHacks submission copy: [`docs/BUIDL.md`](docs/BUIDL.md)
 
 [![DreamDesk demo thumbnail](docs/screenshots/thumbnail-1280x720.png)](docs/demo/dreamdesk-demo-3min.mp4)
 
