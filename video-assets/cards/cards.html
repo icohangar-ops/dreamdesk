@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#04080A; --panel:#0A1210; --line:#14231E;
+    --green:#10B981; --green-dim:#0B6B4F; --amber:#F5B93E;
+    --txt:#E8F2EE; --dim:#7A8F88; --faint:#48584F;
+    --mono:'Sarasa Mono SC','DejaVu Sans Mono',monospace;
+    --sans:'Noto Sans SC','DejaVu Sans',sans-serif;
+  }
+  .slide {
+    width:1920px; height:1080px; position:relative; overflow:hidden;
+    background:var(--bg); font-family:var(--mono); color:var(--txt);
+  }
+  /* subtle grid */
+  .slide::before {
+    content:''; position:absolute; inset:0;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:96px 96px; opacity:.28;
+  }
+  /* corner glow */
+  .glow { position:absolute; width:900px; height:900px; border-radius:50%;
+          background:radial-gradient(circle,rgba(16,185,129,.13),transparent 65%); }
+  .g-tl { top:-450px; left:-250px; } .g-br { bottom:-450px; right:-250px; }
+
+  .kicker { font-size:22px; letter-spacing:.42em; color:var(--green); text-transform:uppercase; }
+  .chip { display:inline-block; padding:10px 22px; border:1px solid var(--green-dim);
+          border-radius:6px; font-size:21px; letter-spacing:.14em; color:var(--green);
+          text-transform:uppercase; background:rgba(16,185,129,.06); }
+  .chip.amber { border-color:#6B511E; color:var(--amber); background:rgba(245,185,62,.06); }
+  .footer { position:absolute; bottom:44px; left:96px; right:96px; display:flex;
+            justify-content:space-between; font-size:19px; color:var(--faint);
+            letter-spacing:.18em; text-transform:uppercase; border-top:1px solid var(--line); padding-top:22px; }
+
+  /* ---------- SLIDE 1 : title ---------- */
+  .s1 .wrap { position:absolute; inset:0; display:flex; flex-direction:column;
+              align-items:center; justify-content:center; gap:38px; text-align:center; }
+  .s1 .logo { display:flex; align-items:center; gap:26px; }
+  .s1 .mark { width:108px; height:108px; border-radius:24px; background:linear-gradient(135deg,#0E9F73,#064E3B);
+              display:flex; align-items:center; justify-content:center; font-size:56px; font-weight:800;
+              color:#EFFFFA; box-shadow:0 0 80px rgba(16,185,129,.35); font-family:var(--sans); }
+  .s1 h1 { font-size:150px; font-weight:800; letter-spacing:.01em; font-family:var(--sans); }
+  .s1 h1 span { color:var(--green); }
+  .s1 .tag { font-size:34px; color:var(--dim); letter-spacing:.08em; }
+  .s1 .tag b { color:var(--txt); font-weight:600; }
+  .s1 .chips { display:flex; gap:18px; margin-top:8px; }
+
+  /* ---------- SLIDE 2 : market ---------- */
+  .s2 .wrap { position:absolute; inset:0; padding:120px 150px; display:flex; flex-direction:column; gap:54px; }
+  .s2 h2 { font-size:76px; font-family:var(--sans); font-weight:800; }
+  .s2 h2 em { color:var(--green); font-style:normal; }
+  .s2 .row { display:grid; grid-template-columns:repeat(2,1fr); gap:34px; }
+  .cell { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:40px 44px; }
+  .cell .k { font-size:22px; letter-spacing:.3em; color:var(--faint); text-transform:uppercase; margin-bottom:16px; }
+  .cell .v { font-size:40px; color:var(--txt); font-weight:700; }
+  .cell .v small { font-size:24px; color:var(--dim); font-weight:400; }
+  .cell .v .up { color:var(--green); } .cell .v .dn { color:#F87171; }
+
+  /* ---------- SLIDE 3 : pipeline ---------- */
+  .s3 .wrap { position:absolute; inset:0; padding:84px 130px 110px; display:flex; flex-direction:column; gap:34px; }
+  .s3 h2 { font-size:62px; font-family:var(--sans); font-weight:800; white-space:nowrap; }
+  .s3 h2 em { color:var(--green); font-style:normal; }
+  .pipe { display:flex; flex-direction:column; gap:0; }
+  .stage { display:grid; grid-template-columns:120px 460px 1fr; align-items:center; gap:40px;
+           padding:22px 0; border-bottom:1px dashed var(--line); }
+  .stage:last-child { border-bottom:none; }
+  .stage .num { font-size:28px; color:var(--green); font-weight:700; }
+  .stage .name { font-size:33px; font-weight:700; font-family:var(--sans); white-space:nowrap; }
+  .stage .desc { font-size:22px; color:var(--dim); line-height:1.45; }
+  .arrowline { color:var(--green); font-size:22px; letter-spacing:.5em; margin:0 0 0 140px; }
+
+  /* ---------- SLIDE 4 : evidence ---------- */
+  .s4 .wrap { position:absolute; inset:0; padding:120px 150px; display:flex; flex-direction:column; gap:56px; }
+  .s4 h2 { font-size:76px; font-family:var(--sans); font-weight:800; }
+  .s4 h2 em { color:var(--green); font-style:normal; }
+  .s4 .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:34px; }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:44px 48px; }
+  .stat .n { font-size:64px; font-weight:800; color:var(--green); font-family:var(--sans); }
+  .stat .n.red { color:#F87171; }
+  .stat .d { font-size:25px; color:var(--dim); margin-top:12px; line-height:1.45; }
+
+  /* ---------- SLIDE 5 : outro ---------- */
+  .s5 .wrap { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+              justify-content:center; gap:44px; text-align:center; }
+  .s5 h2 { font-size:110px; font-family:var(--sans); font-weight:800; }
+  .s5 h2 span { color:var(--green); }
+  .s5 .sub { font-size:32px; color:var(--dim); letter-spacing:.06em; }
+  .s5 .repo { font-size:40px; color:var(--txt); border:1px solid var(--green-dim); border-radius:10px;
+              padding:26px 54px; background:rgba(16,185,129,.07); letter-spacing:.02em; }
+  .s5 .team { font-size:24px; color:var(--faint); letter-spacing:.24em; text-transform:uppercase; }
+
+  /* ---------- THUMBNAIL 1280x720 ---------- */
+  .thumb { width:1280px; height:720px; position:relative; overflow:hidden; background:#04080A;
+           font-family:var(--mono); color:var(--txt); }
+  .thumb::before { content:''; position:absolute; inset:0;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:80px 80px; opacity:.3; }
+  .thumb .glow { width:760px; height:760px; }
+  .thumb .wrap { position:absolute; inset:0; padding:64px 72px; display:flex; gap:56px; }
+  .thumb .left { flex:1.05; display:flex; flex-direction:column; justify-content:center; gap:26px; }
+  .thumb .brand { display:flex; align-items:center; gap:18px; }
+  .thumb .mark { width:64px; height:64px; border-radius:15px; background:linear-gradient(135deg,#0E9F73,#064E3B);
+                 display:flex; align-items:center; justify-content:center; font-size:34px; font-weight:800;
+                 color:#EFFFFA; font-family:var(--sans); box-shadow:0 0 44px rgba(16,185,129,.4); }
+  .thumb h1 { font-size:84px; font-weight:800; font-family:var(--sans); line-height:1; }
+  .thumb h1 span { color:var(--green); }
+  .thumb .tag { font-size:25px; color:var(--dim); line-height:1.5; }
+  .thumb .tag b { color:var(--txt); }
+  .thumb .chips { display:flex; flex-wrap:wrap; gap:12px; }
+  .thumb .chip { padding:8px 16px; font-size:16px; border-radius:5px; }
+  .thumb .shotbox { flex:1; border:1px solid var(--line); border-radius:12px; overflow:hidden;
+                    box-shadow:0 24px 70px rgba(0,0,0,.6); position:relative; }
+  .thumb .shotbox img { width:100%; height:100%; object-fit:cover; object-position:top left; }
+  .thumb .livebar { position:absolute; top:0; left:0; right:0; background:rgba(4,8,10,.85);
+                    padding:8px 14px; font-size:14px; color:var(--green); letter-spacing:.2em;
+                    display:flex; justify-content:space-between; }
+</style>
+</head>
+<body>
+
+<!-- SLIDE 1 -->
+<div class="slide s1" id="s1">
+  <div class="glow g-tl"></div><div class="glow g-br"></div>
+  <div class="wrap">
+    <div class="logo">
+      <div class="mark">D</div>
+      <h1>Dream<span>Desk</span></h1>
+    </div>
+    <div class="tag">An <b>auditable multi-agent trading desk</b> for dreamDEX Event Contracts</div>
+    <div class="chips">
+      <div class="chip">dreamDEX Event Contracts</div>
+      <div class="chip">Somnia Shannon · 50312</div>
+      <div class="chip">LLM Council</div>
+      <div class="chip amber">Hash-Chained Audit</div>
+    </div>
+  </div>
+  <div class="footer"><span>DoraHacks · Event Contracts Hackathon</span><span>icohangar-ops × Cubiczan</span></div>
+</div>
+
+<!-- SLIDE 2 -->
+<div class="slide s2" id="s2">
+  <div class="glow g-tl"></div>
+  <div class="wrap">
+    <div class="kicker">The Arena</div>
+    <h2>Binary markets, <em>settled by the chain</em> — not by a promise</h2>
+    <div class="row">
+      <div class="cell"><div class="k">Instrument</div><div class="v">BTC / ETH <small>· Up or Down</small></div></div>
+      <div class="cell"><div class="k">Windows</div><div class="v">1m · 5m · 1h · 4h · 1d <small>closes</small></div></div>
+      <div class="cell"><div class="k">Payout</div><div class="v"><span class="up">Fixed, ~1:1</span> <small>zero fees</small></div></div>
+      <div class="cell"><div class="k">Settlement</div><div class="v"><span class="up">Fully on-chain</span> <small>Somnia, sub-second</small></div></div>
+    </div>
+  </div>
+  <div class="footer"><span>DreamDesk · The Market</span><span>02 / 05</span></div>
+</div>
+
+<!-- SLIDE 3 -->
+<div class="slide s3" id="s3">
+  <div class="glow g-br"></div>
+  <div class="wrap">
+    <div class="kicker">The Pipeline</div>
+    <h2>Every thought <em>inspected, gated, logged</em></h2>
+    <div class="pipe">
+      <div class="stage"><div class="num">01</div><div class="name">Signal Agents</div><div class="desc">Momentum · Volatility · Sentiment — deterministic quant reads on live oracle prices, plus an LLM scout that abstains honestly.</div></div>
+      <div class="arrowline">▼</div>
+      <div class="stage"><div class="num">02</div><div class="name">LLM Council</div><div class="desc">Three jurors with opposed mandates — TREND, CONTRARIAN, SENTINEL — vote with written rationales; quorum requires two.</div></div>
+      <div class="arrowline">▼</div>
+      <div class="stage"><div class="num">03</div><div class="name">Risk Gates</div><div class="desc">Eight deterministic gates — confidence, edge, exposure, cooldown, loss limit. No LLM may overrule them.</div></div>
+      <div class="arrowline">▼</div>
+      <div class="stage"><div class="num">04</div><div class="name">Execution → Ledger</div><div class="desc">IOC limit orders into the dreamDEX book; every step lands in a SHA-256 hash chain that re-verifies itself live.</div></div>
+    </div>
+  </div>
+  <div class="footer"><span>DreamDesk · Architecture</span><span>03 / 05</span></div>
+</div>
+
+<!-- SLIDE 4 -->
+<div class="slide s4" id="s4">
+  <div class="glow g-tl"></div>
+  <div class="wrap">
+    <div class="kicker">The Evidence</div>
+    <h2>Verified, not <em>vibes</em></h2>
+    <div class="grid">
+      <div class="stat"><div class="n">14 / 14</div><div class="d">unit checks green — fill mechanics, fixed-payout PnL math, ledger tamper detection</div></div>
+      <div class="stat"><div class="n">+99.25 tUSDC</div><div class="d">first live e2e settlement — a WIN resolved from on-chain winningOutcome</div></div>
+      <div class="stat"><div class="n">1,443 events</div><div class="d">audit chain verified from genesis — SHA-256, tamper-evident, brokenAt: null</div></div>
+      <div class="stat"><div class="n">PAPER ≡ LIVE</div><div class="d">one ExecutionAdapter interface — the demo you watch is the code that trades</div></div>
+    </div>
+  </div>
+  <div class="footer"><span>DreamDesk · Verification</span><span>04 / 05</span></div>
+</div>
+
+<!-- SLIDE 5 -->
+<div class="slide s5" id="s5">
+  <div class="glow g-tl"></div><div class="glow g-br"></div>
+  <div class="wrap">
+    <h2>Agents you can <span>audit.</span></h2>
+    <div class="sub">Signal → Council → Gates → Chain. Every step, on the record.</div>
+    <div class="repo">github.com/icohangar-ops/dreamdesk</div>
+    <div class="team">Built for the DoraHacks Event Contracts Hackathon · icohangar-ops × Cubiczan</div>
+  </div>
+</div>
+
+<!-- THUMBNAIL -->
+<div class="thumb" id="thumb">
+  <div class="glow g-tl" style="top:-380px;left:-220px;"></div>
+  <div class="glow g-br" style="bottom:-380px;right:-220px;"></div>
+  <div class="wrap">
+    <div class="left">
+      <div class="brand">
+        <div class="mark">D</div>
+        <div style="font-size:17px; letter-spacing:.34em; color:var(--green); text-transform:uppercase;">Multi-Agent · On-Chain</div>
+      </div>
+      <h1>Dream<span>Desk</span></h1>
+      <div class="tag">An <b>auditable AI trading desk</b> for<br>dreamDEX Event Contracts on Somnia</div>
+      <div class="chips">
+        <div class="chip">LLM Council</div>
+        <div class="chip">8 Risk Gates</div>
+        <div class="chip amber">SHA-256 Audit</div>
+      </div>
+    </div>
+    <div class="shotbox">
+      <img src="file:///home/z/my-project/docs/screenshots/trading-floor-top.png">
+      <div class="livebar"><span>● LIVE — BTC 5-MIN</span><span>SOMNIA SHANNON</span></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
