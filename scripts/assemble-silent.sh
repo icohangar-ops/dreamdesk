@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assemble the DreamDesk demo video — caption/ambient edition (~2:55).
-# Consumes: cards, captions, floor-tour.webm. Produces: download/dreamdesk-demo-3min.mp4
+# Consumes: cards, captions, floor-tour-25fps.mp4. Produces: download/dreamdesk-demo-3min.mp4
 set -euo pipefail
 A=/home/z/my-project/video-assets
 C=$A/cards
@@ -9,13 +9,13 @@ OUT=/home/z/my-project/download/dreamdesk-demo-3min.mp4
 mkdir -p "$W" /home/z/my-project/download
 
 TOTAL=173   # 12+14+18+54+45+15+15
-ENC="-c:v libx264 -preset medium -crf 19 -pix_fmt yuv420p -r 25"
+ENC="-c:v libx264 -preset veryfast -crf 19 -pix_fmt yuv420p -r 25"
 
-card_block () {  # $1=png $2=dur $3=out
+block () {  # $1=png $2=dur $3=out  (card with slow zoom + fades)
   local frames=$(python3 -c "print(int($2*25))")
   ffmpeg -y -v error -i "$1" -f lavfi -t "$2" -i anullsrc=r=48000:cl=stereo \
-    -vf "scale=2016:1134,zoompan=z='min(1.0+0.0022*on,1.05)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1920x1080:fps=25,fade=t=in:st=0:d=0.5,fade=t=out:st=$(python3 -c "print(max(0,$2-0.55))"):d=0.55,format=yuv420p" \
-    $ENC -c:a aac -b:a 128k -shortest "$3"
+    -filter_complex "[0:v]scale=2016:1134,zoompan=z='min(1.0+0.0022*on,1.05)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1920x1080:fps=25,fade=t=in:st=0:d=0.5,fade=t=out:st=$(python3 -c "print(max(0,$2-0.55))"):d=0.55,format=yuv420p[v]" \
+    -map "[v]" -map 1:a $ENC -c:a aac -b:a 128k -shortest "$3"
 }
 
 cut_block () {  # $1="ss:capfile ..."  $2="ss secs ss secs ..." $3=dur $4=out
@@ -40,24 +40,26 @@ PYEOF
     i=$((i+1))
     cap=$(echo "$caps" | cut -d' ' -f$i)
     if [ -n "$cap" ] && [ "$cap" != "-" ]; then
-      ffmpeg -y -v error -ss "$ss" -t "$secs" -i $A/raw/floor-tour.webm -i "$cap" -f lavfi -t "$secs" -i anullsrc=r=48000:cl=stereo \
+      ffmpeg -y -v error -ss "$ss" -t "$secs" -i $A/raw/floor-tour-25fps.mp4 -i "$cap" -f lavfi -t "$secs" -i anullsrc=r=48000:cl=stereo \
         -filter_complex "[0:v]scale=1920:1080,fps=25[bg];[1:v]format=rgba,fade=t=in:st=0.4:d=0.5:alpha=1,fade=t=out:st=$(python3 -c "print(max(0,$secs-0.9))"):d=0.9:alpha=1[cap];[bg][cap]overlay=0:0,format=yuv420p[v]" \
-        -map "[v]" $ENC -c:a aac -b:a 128k -shortest "$W/cut_$i.mp4"
+        -map "[v]" -map 2:a $ENC -c:a aac -b:a 128k -shortest "$W/cut_$i.mp4"
     else
-      ffmpeg -y -v error -ss "$ss" -t "$secs" -i $A/raw/floor-tour.webm -f lavfi -t "$secs" -i anullsrc=r=48000:cl=stereo \
-        -vf "scale=1920:1080,fps=25,format=yuv420p" $ENC -c:a aac -b:a 128k -shortest "$W/cut_$i.mp4"
+      ffmpeg -y -v error -ss "$ss" -t "$secs" -i $A/raw/floor-tour-25fps.mp4 -f lavfi -t "$secs" -i anullsrc=r=48000:cl=stereo \
+        -filter_complex "[0:v]scale=1920:1080,fps=25,format=yuv420p[v]" \
+        -map "[v]" -map 1:a $ENC -c:a aac -b:a 128k -shortest "$W/cut_$i.mp4"
     fi
     echo "file '$W/cut_$i.mp4'" >> "$W/${out##*/}.parts.txt"
   done < "$W/cuts.txt"
   ffmpeg -y -v error -f concat -safe 0 -i "$W/${out##*/}.parts.txt" -c copy "$W/pre_${out##*/}"
-  ffmpeg -y -v error -i "$W/pre_${out##*/}" \
-    -vf "fade=t=in:st=0:d=0.35,fade=t=out:st=$(python3 -c "print(max(0,$total-0.55))"):d=0.55" $ENC "$4"
+  ffmpeg -y -v error -i "$W/pre_${out##*/}" -f lavfi -t "$total" -i anullsrc=r=48000:cl=stereo \
+    -filter_complex "[0:v]fade=t=in:st=0:d=0.35,fade=t=out:st=$(python3 -c "print(max(0,$total-0.55))"):d=0.55,format=yuv420p[v]" \
+    -map "[v]" -map 1:a $ENC -c:a aac -b:a 128k -shortest "$4"
 }
 
 echo "== cards =="
-card_block $C/card1-title.png    12 "$W/b1.mp4"
-card_block $C/card2-market.png   14 "$W/b2.mp4"
-card_block $C/card3-pipeline.png 18 "$W/b3.mp4"
+block $C/card1-title.png    12 "$W/b1.mp4"
+block $C/card2-market.png   14 "$W/b2.mp4"
+block $C/card3-pipeline.png 18 "$W/b3.mp4"
 
 echo "== tour with captions =="
 cut_block "$C/caption-1.png $C/caption-2.png $C/caption-3.png $C/caption-4.png" \
@@ -66,8 +68,8 @@ cut_block "$C/caption-5.png $C/caption-6.png $C/caption-7.png" \
           "84:20 132:13 146:12"      45 "$W/b5.mp4"
 
 echo "== cards 2 =="
-card_block $C/card4-evidence.png 15 "$W/b6.mp4"
-card_block $C/card5-outro.png    15 "$W/b7.mp4"
+block $C/card4-evidence.png 15 "$W/b6.mp4"
+block $C/card5-outro.png    15 "$W/b7.mp4"
 
 echo "== concat =="
 : > "$W/concat_all.txt"

@@ -7,7 +7,7 @@ const { chromium } = require("/home/z/.npm-global/lib/node_modules/playwright");
   await page.goto("file:///home/z/my-project/video-assets/cards/captions.html", { waitUntil: "networkidle" });
   await page.waitForTimeout(600);
   for (let i = 1; i <= 7; i++) {
-    await page.locator("#c" + i).screenshot({ path: `/home/z/my-project/video-assets/cards/caption-${i}.png` });
+    await page.locator("#c" + i).screenshot({ path: `/home/z/my-project/video-assets/cards/caption-${i}.png`, omitBackground: true });
     console.log("caption", i);
   }
   await browser.close();
