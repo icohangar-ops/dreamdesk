@@ -91,6 +91,15 @@ bun run dev          # http://localhost:3000
 3. Set `DREAMDESK_PRIVATE_KEY` and restart. The badge flips to **LIVE · SOMNIA SHANNON**.
 4. Start the desk, press **Force cycle**, and watch the full pipeline.
 
+## Demo video (3 min)
+
+A narrated walkthrough — the pipeline, the council, the gates, and the hash-chain ledger, all live:
+
+- `docs/demo/dreamdesk-demo-3min.mp4` (also attached to the DoraHacks BUIDL)
+- Thumbnail: `docs/screenshots/thumbnail-1280x720.png`
+
+[![DreamDesk demo thumbnail](docs/screenshots/thumbnail-1280x720.png)](docs/demo/dreamdesk-demo-3min.mp4)
+
 ## The UI — a trading room with a glass wall
 
 - **Console** — mode badge (LIVE/PAPER with reason), asset + window selects, start/stop, force cycle, faucet. Equity, realized PnL, wallet collateral, win rate.
