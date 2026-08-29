@@ -107,3 +107,19 @@ Work Log:
 
 Stage Summary:
 - Deliverables: live preview app, GitHub repo, README, BUIDL copy, unit tests, audit chain
+
+---
+Task ID: 5
+Agent: main
+Task: Push demo video to GitHub; create <30k char BUIDL for DoraHacks
+
+Work Log:
+- Verified download/dreamdesk-demo-3min.mp4 (173s, 9.9MB, audio intact)
+- Copied to docs/demo/, PAT scan 0 hits, commit 474ff12 pushed (57 files: video + all production assets)
+- Wrote docs/BUIDL.md (11,384 chars < 30,000 limit) in DoraHacks BUIDL format
+- Added README link to BUIDL.md, commit 1e5b87c pushed
+- Pasted full BUIDL text in chat for user submission
+
+Stage Summary:
+- Video live at docs/demo/dreamdesk-demo-3min.mp4 on icohangar-ops/dreamdesk
+- BUIDL ready for DoraHacks submission; pending: Cubiczan mirror repo (if requested), narrated video variant (optional)
