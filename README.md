@@ -76,6 +76,8 @@ bun install          # or npm install / pnpm install
 echo 'DATABASE_URL="file:./db/custom.db"' >> .env
 # LIVE mode only: a funded Somnia Shannon testnet wallet (get tSTT + tUSDC from the faucets)
 echo 'DREAMDESK_PRIVATE_KEY="0x..."' >> .env
+# Optional UiPath webhook secret for /api/desk/uipath
+echo 'UIPATH_WEBHOOK_SECRET="..."' >> .env
 
 # 3. database
 bunx prisma db push
@@ -119,6 +121,7 @@ A narrated walkthrough — the pipeline, the council, the gates, and the hash-ch
 | `/api/desk/start` | POST | Start session — `{ asset: "BTC"\|"ETH", cadenceSec: 300\|3600, mode?: "LIVE"\|"PAPER" }` |
 | `/api/desk/stop` | POST | Stop session |
 | `/api/desk/cycle` | POST | Force one full decision cycle immediately (demo button) |
+| `/api/desk/uipath` | POST | Accept a UiPath handoff and start/advance the desk |
 | `/api/desk/faucet` | POST | Claim tUSDC from the dreamDEX testnet faucet (LIVE mode) |
 | `/api/desk/audit` | GET | Full audit ledger + `verifyChain()` result |
 | `/api/desk/stream` | GET | SSE stream of desk snapshots (real-time UI) |
@@ -131,6 +134,7 @@ A narrated walkthrough — the pipeline, the council, the gates, and the hash-ch
 - **dreamDEX price-feed GraphQL oracle** — the same settlement index the contracts resolve against (Binance spot as fallback feed)
 - **z-ai-web-dev-sdk (GLM)** — sentiment agent + council jurors, with honest heuristic degradation
 - **SSE** — one engine event bus fans out to every connected browser
+- **UiPath** — optional webhook handoff for external desk work orders or document triggers
 
 ## Repository layout
 
