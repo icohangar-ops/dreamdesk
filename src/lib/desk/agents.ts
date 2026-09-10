@@ -7,6 +7,7 @@
 
 import { ema, emaSeries, rateOfChange, tickVolatility, zScore, rsi, clamp01 } from "./indicators";
 import { DESK } from "./config";
+import { startActiveObservation } from "@langfuse/tracing";
 
 export type AgentName = "MOMENTUM" | "VOLATILITY" | "SENTIMENT";
 export type Direction = "UP" | "DOWN" | "FLAT";
@@ -115,49 +116,56 @@ type SentimentCache = { ts: number; packet: SignalPacket; asset: string };
 const g = globalThis as unknown as { __dreamdeskSentiment?: SentimentCache };
 
 export async function sentimentAgent(asset: string): Promise<SignalPacket> {
-  const cached = g.__dreamdeskSentiment;
-  if (cached && cached.asset === asset && Date.now() - cached.ts < DESK.sentimentCacheMs) {
-    return { ...cached.packet, data: { ...cached.packet.data, cachedFor: Math.round((DESK.sentimentCacheMs - (Date.now() - cached.ts)) / 1000) + "s" } };
-  }
+  return await startActiveObservation("desk-sentiment", async (span) => {
+    span.update({ input: { asset, cacheWindowMs: DESK.sentimentCacheMs } });
 
-  let packet: SignalPacket;
-  try {
-    const { default: ZAI } = await import("z-ai-web-dev-sdk");
-    const zai = await ZAI.create();
-    const prompt = `You are the news-sentiment analyst on a ${asset} trading desk. Assess the short-term (next 15-60 minutes) directional bias for ${asset} based on your knowledge of current market conditions, macro backdrop, and typical intraday dynamics. Respond with ONLY a JSON object:
+    const cached = g.__dreamdeskSentiment;
+    if (cached && cached.asset === asset && Date.now() - cached.ts < DESK.sentimentCacheMs) {
+      const packet = { ...cached.packet, data: { ...cached.packet.data, cachedFor: Math.round((DESK.sentimentCacheMs - (Date.now() - cached.ts)) / 1000) + "s" } };
+      span.update({ output: packet, metadata: { cached: true } });
+      return packet;
+    }
+
+    let packet: SignalPacket;
+    try {
+      const { default: ZAI } = await import("z-ai-web-dev-sdk");
+      const zai = await ZAI.create();
+      const prompt = `You are the news-sentiment analyst on a ${asset} trading desk. Assess the short-term (next 15-60 minutes) directional bias for ${asset} based on your knowledge of current market conditions, macro backdrop, and typical intraday dynamics. Respond with ONLY a JSON object:
 {"direction":"UP"|"DOWN"|"FLAT","confidence":0..1,"headline":"one-sentence market read","drivers":["driver1","driver2"]}`;
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: "system", content: "You are a precise crypto market sentiment analyst. Always respond with valid JSON only." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.3,
-    });
-    const raw = completion.choices[0]?.message?.content ?? "";
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("no JSON in LLM response");
-    const parsed = JSON.parse(match[0]) as { direction: string; confidence: number; headline: string; drivers: string[] };
-    const dir = ["UP", "DOWN", "FLAT"].includes(parsed.direction) ? (parsed.direction as Direction) : "FLAT";
-    packet = {
-      agent: "SENTIMENT",
-      direction: dir,
-      strength: dir === "FLAT" ? 0.1 : clamp01(parsed.confidence),
-      confidence: clamp01(parsed.confidence),
-      detail: `LLM read: ${parsed.headline} Drivers: ${parsed.drivers?.slice(0, 3).join("; ") || "none listed"}.`,
-      data: { drivers: parsed.drivers?.slice(0, 3).join(" | ") ?? "", engine: "z-ai LLM" },
-    };
-  } catch (e) {
-    // Honest fallback: label it as such rather than pretending the LLM spoke.
-    packet = {
-      agent: "SENTIMENT",
-      direction: "FLAT",
-      strength: 0,
-      confidence: 0.15,
-      detail: `Sentiment feed unavailable (${((e as Error).message || "LLM error").slice(0, 80)}) — abstaining this cycle.`,
-      data: { engine: "fallback" },
-    };
-  }
+      const completion = await zai.chat.completions.create({
+        messages: [
+          { role: "system", content: "You are a precise crypto market sentiment analyst. Always respond with valid JSON only." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.3,
+      });
+      const raw = completion.choices[0]?.message?.content ?? "";
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("no JSON in LLM response");
+      const parsed = JSON.parse(match[0]) as { direction: string; confidence: number; headline: string; drivers: string[] };
+      const dir = ["UP", "DOWN", "FLAT"].includes(parsed.direction) ? (parsed.direction as Direction) : "FLAT";
+      packet = {
+        agent: "SENTIMENT",
+        direction: dir,
+        strength: dir === "FLAT" ? 0.1 : clamp01(parsed.confidence),
+        confidence: clamp01(parsed.confidence),
+        detail: `LLM read: ${parsed.headline} Drivers: ${parsed.drivers?.slice(0, 3).join("; ") || "none listed"}.`,
+        data: { drivers: parsed.drivers?.slice(0, 3).join(" | ") ?? "", engine: "z-ai LLM" },
+      };
+    } catch (e) {
+      // Honest fallback: label it as such rather than pretending the LLM spoke.
+      packet = {
+        agent: "SENTIMENT",
+        direction: "FLAT",
+        strength: 0,
+        confidence: 0.15,
+        detail: `Sentiment feed unavailable (${((e as Error).message || "LLM error").slice(0, 80)}) — abstaining this cycle.`,
+        data: { engine: "fallback" },
+      };
+    }
 
-  g.__dreamdeskSentiment = { ts: Date.now(), packet, asset };
-  return packet;
+    g.__dreamdeskSentiment = { ts: Date.now(), packet, asset };
+    span.update({ output: packet, metadata: { cached: false } });
+    return packet;
+  });
 }

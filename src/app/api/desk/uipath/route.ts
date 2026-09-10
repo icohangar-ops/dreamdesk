@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     };
 
     const asset = ["BTC", "ETH"].includes((body.asset ?? "").toUpperCase()) ? body.asset!.toUpperCase() : "BTC";
-    const cadenceSec = [300, 3600].includes(Number(body.cadenceSec)) ? Number(body.cadenceSec) : 300;
+    const cadenceSec = [60, 300, 3600].includes(Number(body.cadenceSec)) ? Number(body.cadenceSec) : 300;
     const mode = body.mode === "LIVE" || body.mode === "PAPER" ? body.mode : undefined;
 
     if (engine.status !== "RUNNING") {

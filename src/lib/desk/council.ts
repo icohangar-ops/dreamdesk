@@ -6,6 +6,7 @@
 // verbatim — dissents included — so every fill traces to a debatable argument.
 
 import { type SignalPacket } from "./agents";
+import { startActiveObservation } from "@langfuse/tracing";
 
 export type JurorName = "TREND" | "CONTRARIAN" | "SENTINEL";
 export type Vote = "YES" | "NO" | "ABSTAIN"; // YES = buy the Up contract
@@ -92,42 +93,48 @@ function heuristicBallot(juror: JurorName, ctx: CouncilContext): JurorBallot {
 }
 
 async function llmBallot(juror: JurorName, ctx: CouncilContext): Promise<JurorBallot> {
-  const { default: ZAI } = await import("z-ai-web-dev-sdk");
-  const zai = await ZAI.create();
-  const ask = () =>
-    zai.chat.completions.create({
-      messages: [
-        {
-          role: "system",
-          content: `You are ${juror}, a juror on the DreamDesk trading council for dreamDEX event contracts. Your mandate: ${JUROR_MANDATES[juror]} An event contract pays a fixed payout if ${ctx.asset} closes at-or-above its opening price when the window expires ("YES"/Up) or below it ("NO"/Down). You are buying a probability, not the asset. Respond with ONLY a JSON object: {"vote":"YES"|"NO"|"ABSTAIN","confidence":0..1,"rationale":"two sentences max"}`,
-        },
-        { role: "user", content: packetBlock(ctx) },
-      ],
-      temperature: 0.4,
-    });
+  return await startActiveObservation("desk-ballot", async (span) => {
+    span.update({ input: { juror, asset: ctx.asset, cadenceSec: ctx.cadenceSec } });
 
-  // One polite retry on rate limiting — then fall to the heuristic quorum.
-  let completion;
-  try {
-    completion = await ask();
-  } catch (err) {
-    if (!/429|Too many/i.test(String(err))) throw err;
-    await new Promise((r) => setTimeout(r, 1_800));
-    completion = await ask();
-  }
+    const { default: ZAI } = await import("z-ai-web-dev-sdk");
+    const zai = await ZAI.create();
+    const ask = () =>
+      zai.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content: `You are ${juror}, a juror on the DreamDesk trading council for dreamDEX event contracts. Your mandate: ${JUROR_MANDATES[juror]} An event contract pays a fixed payout if ${ctx.asset} closes at-or-above its opening price when the window expires ("YES"/Up) or below it ("NO"/Down). You are buying a probability, not the asset. Respond with ONLY a JSON object: {"vote":"YES"|"NO"|"ABSTAIN","confidence":0..1,"rationale":"two sentences max"}`,
+          },
+          { role: "user", content: packetBlock(ctx) },
+        ],
+        temperature: 0.4,
+      });
 
-  const raw = completion.choices[0]?.message?.content ?? "";
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("no JSON in LLM response");
-  const parsed = JSON.parse(match[0]) as { vote: string; confidence: number; rationale: string };
-  const vote = ["YES", "NO", "ABSTAIN"].includes(parsed.vote) ? (parsed.vote as Vote) : "ABSTAIN";
-  return {
-    juror,
-    vote,
-    confidence: Math.min(1, Math.max(0, parsed.confidence)),
-    rationale: parsed.rationale?.slice(0, 400) || "No rationale given.",
-    engine: "llm",
-  };
+    // One polite retry on rate limiting — then fall to the heuristic quorum.
+    let completion;
+    try {
+      completion = await ask();
+    } catch (err) {
+      if (!/429|Too many/i.test(String(err))) throw err;
+      await new Promise((r) => setTimeout(r, 1_800));
+      completion = await ask();
+    }
+
+    const raw = completion.choices[0]?.message?.content ?? "";
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("no JSON in LLM response");
+    const parsed = JSON.parse(match[0]) as { vote: string; confidence: number; rationale: string };
+    const vote = ["YES", "NO", "ABSTAIN"].includes(parsed.vote) ? (parsed.vote as Vote) : "ABSTAIN";
+    const ballot = {
+      juror,
+      vote,
+      confidence: Math.min(1, Math.max(0, parsed.confidence)),
+      rationale: parsed.rationale?.slice(0, 400) || "No rationale given.",
+      engine: "llm" as const,
+    };
+    span.update({ output: ballot });
+    return ballot;
+  });
 }
 
 async function voteJuror(juror: JurorName, ctx: CouncilContext): Promise<JurorBallot> {
@@ -139,32 +146,38 @@ async function voteJuror(juror: JurorName, ctx: CouncilContext): Promise<JurorBa
 }
 
 export async function conveneCouncil(ctx: CouncilContext): Promise<CouncilOutcome> {
-  const ballots = await Promise.all([
-    voteJuror("TREND", ctx),
-    voteJuror("CONTRARIAN", ctx),
-    voteJuror("SENTINEL", ctx),
-  ]);
+  return await startActiveObservation("desk-council", async (span) => {
+    span.update({ input: { asset: ctx.asset, cadenceSec: ctx.cadenceSec, marketSymbol: ctx.marketSymbol } });
 
-  const yesWeight = ballots.filter((b) => b.vote === "YES").reduce((a, b) => a + b.confidence, 0);
-  const noWeight = ballots.filter((b) => b.vote === "NO").reduce((a, b) => a + b.confidence, 0);
-  const total = yesWeight + noWeight;
+    const ballots = await Promise.all([
+      voteJuror("TREND", ctx),
+      voteJuror("CONTRARIAN", ctx),
+      voteJuror("SENTINEL", ctx),
+    ]);
 
-  let consensus: CouncilOutcome["consensus"] = "SPLIT";
-  if (yesWeight > noWeight && ballots.filter((b) => b.vote === "YES").length >= 2) consensus = "UP";
-  else if (noWeight > yesWeight && ballots.filter((b) => b.vote === "NO").length >= 2) consensus = "DOWN";
+    const yesWeight = ballots.filter((b) => b.vote === "YES").reduce((a, b) => a + b.confidence, 0);
+    const noWeight = ballots.filter((b) => b.vote === "NO").reduce((a, b) => a + b.confidence, 0);
+    const total = yesWeight + noWeight;
 
-  // Implied model probability: venue mid anchored by weighted conviction.
-  const mid = ctx.upAsk != null && ctx.upBid != null ? (ctx.upAsk + ctx.upBid) / 2 : ctx.upAsk ?? 0.5;
-  const netConviction = total > 0 ? (yesWeight - noWeight) / Math.max(total, 0.001) : 0;
-  const modelProb = Math.min(0.95, Math.max(0.05, mid + netConviction * 0.15));
+    let consensus: CouncilOutcome["consensus"] = "SPLIT";
+    if (yesWeight > noWeight && ballots.filter((b) => b.vote === "YES").length >= 2) consensus = "UP";
+    else if (noWeight > yesWeight && ballots.filter((b) => b.vote === "NO").length >= 2) consensus = "DOWN";
 
-  const yesCount = ballots.filter((b) => b.vote === "YES").length;
-  const noCount = ballots.filter((b) => b.vote === "NO").length;
-  const dissent = ballots.find((b) => b.vote !== (consensus === "UP" ? "YES" : "NO") && b.vote !== "ABSTAIN");
-  const summary =
-    consensus === "SPLIT"
-      ? `Council split ${yesCount}↑/${noCount}↓ — no trade. ${ballots.map((b) => `${b.juror}:${b.vote}`).join(" ")}`
-      : `Council ${consensus === "UP" ? "UP" : "DOWN"} ${consensus === "UP" ? yesCount : noCount}/3${dissent ? ` — dissent from ${dissent.juror}` : " — unanimous"}. Model prob ${(modelProb * 100).toFixed(1)}¢ vs venue ${(mid * 100).toFixed(1)}¢.`;
+    // Implied model probability: venue mid anchored by weighted conviction.
+    const mid = ctx.upAsk != null && ctx.upBid != null ? (ctx.upAsk + ctx.upBid) / 2 : ctx.upAsk ?? 0.5;
+    const netConviction = total > 0 ? (yesWeight - noWeight) / Math.max(total, 0.001) : 0;
+    const modelProb = Math.min(0.95, Math.max(0.05, mid + netConviction * 0.15));
 
-  return { ballots, consensus, modelProb, netConviction, summary };
+    const yesCount = ballots.filter((b) => b.vote === "YES").length;
+    const noCount = ballots.filter((b) => b.vote === "NO").length;
+    const dissent = ballots.find((b) => b.vote !== (consensus === "UP" ? "YES" : "NO") && b.vote !== "ABSTAIN");
+    const summary =
+      consensus === "SPLIT"
+        ? `Council split ${yesCount}↑/${noCount}↓ — no trade. ${ballots.map((b) => `${b.juror}:${b.vote}`).join(" ")}`
+        : `Council ${consensus === "UP" ? "UP" : "DOWN"} ${consensus === "UP" ? yesCount : noCount}/3${dissent ? ` — dissent from ${dissent.juror}` : " — unanimous"}. Model prob ${(modelProb * 100).toFixed(1)}¢ vs venue ${(mid * 100).toFixed(1)}¢.`;
+
+    const outcome = { ballots, consensus, modelProb, netConviction, summary };
+    span.update({ output: outcome });
+    return outcome;
+  });
 }
